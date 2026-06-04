@@ -20,7 +20,7 @@ call .venv\Scripts\activate.bat
 
 REM Check dependencies
 echo Checking dependencies...
-pip install python-telegram-bot httpx Pillow -q 2>nul
+pip install "python-telegram-bot[job-queue]" httpx Pillow -q 2>nul
 
 REM Run the bot
 echo.

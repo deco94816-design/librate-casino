@@ -1438,12 +1438,46 @@ def process_referral_earning(referred_user_id, loss_amount):
 
 
 # Legacy rank functions (kept for backward compatibility, not used in new level system)
-RANKS = {1: {"name": "Newcomer", "xp_required": 0, "emoji": "🌱"}}
+RANKS = {
+    1: {"name": "Iron I", "wager_required": 100, "bonus": 1.00, "perks": "Access to rakeback", "tier": "Iron", "emoji": "◇"},
+    2: {"name": "Iron II", "wager_required": 300, "bonus": 2.00, "perks": None, "tier": "Iron", "emoji": "◆"},
+    3: {"name": "Iron III", "wager_required": 500, "bonus": 4.00, "perks": None, "tier": "Iron", "emoji": "◆"},
+    4: {"name": "Bronze I", "wager_required": 1000, "bonus": 5.00, "perks": "Extra 10% added to weekly bonus", "tier": "Bronze", "emoji": "◇"},
+    5: {"name": "Bronze II", "wager_required": 1500, "bonus": 6.00, "perks": None, "tier": "Bronze", "emoji": "◆"},
+    6: {"name": "Bronze III", "wager_required": 2000, "bonus": 7.00, "perks": None, "tier": "Bronze", "emoji": "◆"},
+    7: {"name": "Silver I", "wager_required": 3000, "bonus": 8.00, "perks": "Withdrawal fee reduced by 1%", "tier": "Silver", "emoji": "◇"},
+    8: {"name": "Silver II", "wager_required": 4000, "bonus": 10.00, "perks": None, "tier": "Silver", "emoji": "◆"},
+    9: {"name": "Silver III", "wager_required": 5000, "bonus": 10.00, "perks": None, "tier": "Silver", "emoji": "◆"},
+    10: {"name": "Gold I", "wager_required": 7500, "bonus": 11.00, "perks": "Monthly free spins worth $10.00\n✨ Access to private chat", "tier": "Gold", "emoji": "◇"},
+    11: {"name": "Gold II", "wager_required": 10000, "bonus": 12.00, "perks": None, "tier": "Gold", "emoji": "◆"},
+    12: {"name": "Gold III", "wager_required": 12500, "bonus": 12.00, "perks": None, "tier": "Gold", "emoji": "◆"},
+    13: {"name": "Platinum I", "wager_required": 15000, "bonus": 12.00, "perks": "Weekly bonus claimed twice a week\n✨ Weekly free spins worth $4.00\n✨ Withdrawal fee reduced by 1.5%", "tier": "Platinum", "emoji": "◇"},
+    14: {"name": "Platinum II", "wager_required": 20000, "bonus": 13.00, "perks": None, "tier": "Platinum", "emoji": "◆"},
+    15: {"name": "Platinum III", "wager_required": 25000, "bonus": 15.00, "perks": None, "tier": "Platinum", "emoji": "◆"},
+    16: {"name": "Diamond I", "wager_required": 40000, "bonus": 25.00, "perks": "Access to Reload\n✨ VIP support\n✨ Dice Battle fee reduced by 20%", "tier": "Diamond", "emoji": "◇"},
+    17: {"name": "Diamond II", "wager_required": 50000, "bonus": 30.00, "perks": None, "tier": "Diamond", "emoji": "◆"},
+    18: {"name": "Diamond III", "wager_required": 60000, "bonus": 50.00, "perks": None, "tier": "Diamond", "emoji": "◆"},
+    19: {"name": "Amethyst I", "wager_required": 80000, "bonus": 70.00, "perks": "No withdrawal fee\n✨ VIP giveaways", "tier": "Amethyst", "emoji": "◇"},
+    20: {"name": "Amethyst II", "wager_required": 100000, "bonus": 90.00, "perks": None, "tier": "Amethyst", "emoji": "◆"},
+    21: {"name": "Amethyst III", "wager_required": 125000, "bonus": 120.00, "perks": None, "tier": "Amethyst", "emoji": "◆"},
+    22: {"name": "Emerald I", "wager_required": 150000, "bonus": 150.00, "perks": None, "tier": "Emerald", "emoji": "◇"},
+    23: {"name": "Emerald II", "wager_required": 200000, "bonus": 180.00, "perks": None, "tier": "Emerald", "emoji": "◆"},
+    24: {"name": "Emerald III", "wager_required": 250000, "bonus": 200.00, "perks": None, "tier": "Emerald", "emoji": "◆"},
+    25: {"name": "Sapphire I", "wager_required": 300000, "bonus": 220.00, "perks": None, "tier": "Sapphire", "emoji": "◇"},
+    26: {"name": "Sapphire II", "wager_required": 400000, "bonus": 260.00, "perks": None, "tier": "Sapphire", "emoji": "◆"},
+    27: {"name": "Sapphire III", "wager_required": 500000, "bonus": 270.00, "perks": None, "tier": "Sapphire", "emoji": "◆"},
+    28: {"name": "Ruby I", "wager_required": 700000, "bonus": 290.00, "perks": None, "tier": "Ruby", "emoji": "◇"},
+    29: {"name": "Ruby II", "wager_required": 900000, "bonus": 340.00, "perks": None, "tier": "Ruby", "emoji": "◆"},
+    30: {"name": "Ruby III", "wager_required": 1100000, "bonus": 400.00, "perks": None, "tier": "Ruby", "emoji": "◆"},
+    31: {"name": "Unreal I", "wager_required": 1400000, "bonus": 500.00, "perks": None, "tier": "Unreal", "emoji": "◇"},
+    32: {"name": "Unreal II", "wager_required": 1750000, "bonus": 750.00, "perks": None, "tier": "Unreal", "emoji": "◆"},
+    33: {"name": "Unreal III", "wager_required": 2000000, "bonus": 1000.00, "perks": None, "tier": "Unreal", "emoji": "◆"}
+}
 
-def get_user_rank(xp):
+def get_user_rank(wager_usd):
     current_rank = 1
-    for level, data in RANKS.items():
-        if xp >= data['xp_required']:
+    for level in range(1, 34):
+        if wager_usd >= RANKS[level]['wager_required']:
             current_rank = level
         else:
             break
@@ -1452,13 +1486,6 @@ def get_user_rank(xp):
 
 def get_rank_info(level):
     return RANKS.get(level, RANKS[1])
-
-
-def add_xp(user_id, amount):
-    profile = get_or_create_profile(user_id)
-    profile['xp'] += amount
-    save_data()
-    return profile['xp']
 
 
 def update_game_stats(user_id, game_type, bet_amount, win_amount, won):
@@ -1478,6 +1505,10 @@ def update_game_stats(user_id, game_type, bet_amount, win_amount, won):
         profile['total_losses'] += bet_amount
         # Process referral earnings when user loses
         process_referral_earning(user_id, bet_amount)
+        # Process rakeback accumulation (5% of loss)
+        current_rank = get_user_rank(profile.get('total_bets', 0.0) * STARS_TO_USD)
+        if current_rank >= 2:  # Bronze I and above
+            profile['rakeback_balance'] = profile.get('rakeback_balance', 0.0) + (bet_amount * 0.05)
     
     profile['game_counts'][game_type] += 1
     
@@ -1500,7 +1531,10 @@ def update_game_stats(user_id, game_type, bet_amount, win_amount, won):
         games_lost=profile['games_lost'],
         favorite_game=profile['favorite_game'],
         biggest_win=profile['biggest_win'],
-        game_counts=profile['game_counts']
+        game_counts=profile['game_counts'],
+        rakeback_balance=profile.get('rakeback_balance', 0.0),
+        claimed_ranks=profile.get('claimed_ranks', []),
+        last_reload_claim=profile.get('last_reload_claim')
     )
     
     # Add to game history
@@ -1860,57 +1894,23 @@ async def weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_errors
 async def bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Weekly bonus command - available every Saturday, screenshot-accurate UI"""
     user = update.effective_user
     user_id = user.id
 
-    now = datetime.now()
-    iso_year, iso_week, _ = now.isocalendar()
-    current_iso_week = (iso_year, iso_week)
-    is_bonus_day = (now.weekday() == 5)  # Saturday
-
-    # Get or generate bonus amount for this ISO week
-    bonus_data = user_weekly_bonus_data.get(user_id)
-
-    if bonus_data and tuple(bonus_data.get("iso_week", ())) == current_iso_week:
-        # Same week — reuse existing amount, do NOT regenerate
-        bonus_usd = bonus_data["amount_usd"]
-        claimed = bonus_data.get("claimed", False)
-    else:
-        # New week — generate fresh random amount $0.10 — $0.90
-        bonus_usd = round(random.uniform(0.10, 0.90), 2)
-        claimed = False
-        user_weekly_bonus_data[user_id] = {
-            "iso_week": current_iso_week,
-            "amount_usd": bonus_usd,
-            "claimed": claimed,
-        }
-
-    is_available = is_bonus_day and not claimed
-    bot_name = bot_identity.get("name", BOT_USERNAME)
-
-    if is_available:
-        status_line = "⭐ <b>Your weekly bonus is available</b>"
-        btn_text = "⭐ Claim bonus"
-        btn_data = "claim_weekly_bonus"
-    else:
-        status_line = "🔒 <b>Your weekly bonus is locked</b>"
-        btn_text = "🔒 Claim bonus"
-        btn_data = "claim_weekly_bonus_locked"
-
-    text = (
-        f"🎂 <b>Receive a bonus every Saturday</b>\n\n"
-        f"<i>If you don't claim it during Saturday — it expires</i>\n"
-        f"{status_line}\n\n"
-        f"<blockquote>Add @{bot_name} to your name and get an extra +10% bonus</blockquote>\n\n"
-        f"💰 Your bonus: <b>${bonus_usd:.2f}</b>"
-    )
-
-    keyboard = [[InlineKeyboardButton(btn_text, callback_data=btn_data)]]
+    text = "⭐ Receive bonuses for activity and games"
+    keyboard = [
+        [InlineKeyboardButton("🏆 Rank bonus", callback_data="bonus_rank")],
+        [InlineKeyboardButton("🎁 Weekly bonus", callback_data="bonus_weekly")],
+        [InlineKeyboardButton("🔄 Rakeback", callback_data="bonus_rakeback")],
+        [InlineKeyboardButton("💎 Reload", callback_data="bonus_reload")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
-    sent = await update.message.reply_html(text, reply_markup=reply_markup)
-    register_menu_owner(sent, user_id)
+    
+    if update.callback_query:
+        sent = await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="HTML")
+    else:
+        sent = await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        register_menu_owner(sent, user_id)
 
 
 @handle_errors
@@ -5872,70 +5872,449 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_blackjack_callback(update, context)
             return
 
-        # Handle weekly bonus claim (before generic answer so we can use show_alert)
-        if data == "claim_weekly_bonus":
-            now = datetime.now()
-            iso_year, iso_week, _ = now.isocalendar()
-            current_iso_week = (iso_year, iso_week)
-            is_bonus_day = (now.weekday() == 5)
-
-            if not is_bonus_day:
-                await query.answer(t("bonus_saturday_only", user_id=user_id), show_alert=True)
-                return
-
-            bonus_data = user_weekly_bonus_data.get(user_id)
-            if not bonus_data or tuple(bonus_data.get("iso_week", ())) != current_iso_week:
-                await query.answer(t("err_no_bonus", user_id=user_id), show_alert=True)
-                return
-
-            if bonus_data.get("claimed", False):
-                await query.answer(t("err_bonus_claimed", user_id=user_id), show_alert=True)
-                return
-
-            bonus_usd = bonus_data["amount_usd"]
-
-            # +10% if bot name is in user's profile name
-            has_name_bonus = check_bot_name_in_profile(query.from_user)
-            if has_name_bonus:
-                bonus_usd = round(bonus_usd * 1.10, 2)
-
-            # Convert USD to stars
-            bonus_stars = max(1, int(bonus_usd / STARS_TO_USD))
-
-            # Credit balance
-            adjust_user_balance(user_id, bonus_stars)
-            user_balances[user_id] = get_user_balance(user_id)
-
-            # Mark claimed
-            user_weekly_bonus_data[user_id]["claimed"] = True
-            user_weekly_bonus_data[user_id]["amount_usd"] = bonus_usd
-            user_weekly_bonus_claimed[user_id] = now
-            db.set_weekly_bonus_claimed(user_id, now)
-
-            bot_name = bot_identity.get("name", BOT_USERNAME)
-
-            # Edit message to locked state (same amount, locked UI)
-            locked_text = (
-                f"🎂 <b>Receive a bonus every Saturday</b>\n\n"
-                f"<i>If you don't claim it during Saturday — it expires</i>\n"
-                f"🔒 <b>Your weekly bonus is locked</b>\n\n"
-                f"<blockquote>Add @{bot_name} to your name and get an extra +10% bonus</blockquote>\n\n"
-                f"💰 Your bonus: <b>${bonus_usd:.2f}</b>"
-            )
-
-            keyboard = [[InlineKeyboardButton(t("claim_bonus_locked", user_id=user_id), callback_data="claim_weekly_bonus_locked")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(locked_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-
-            name_tag = " (+10% name bonus!)" if has_name_bonus else ""
-            await query.answer(f"✅ Claimed ${bonus_usd:.2f} ({bonus_stars} ⭐){name_tag}", show_alert=True)
-
-            logger.info(f"Weekly bonus claimed: user {user_id} got ${bonus_usd:.2f} ({bonus_stars} ⭐) name_bonus={has_name_bonus}")
+        # Handle bonus menu navigation
+        if data == "bonus_main":
+            text = "⭐ Receive bonuses for activity and games"
+            keyboard = [
+                [InlineKeyboardButton("🏆 Rank bonus", callback_data="bonus_rank")],
+                [InlineKeyboardButton("🎁 Weekly bonus", callback_data="bonus_weekly")],
+                [InlineKeyboardButton("🔄 Rakeback", callback_data="bonus_rakeback")],
+                [InlineKeyboardButton("💎 Reload", callback_data="bonus_reload")]
+            ]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
             return
 
-        if data == "claim_weekly_bonus_locked":
-            await query.answer(t("bonus_locked", user_id=user_id), show_alert=True)
+        if data == "bonus_rank":
+            profile = get_or_create_profile(user_id)
+            current_rank_level = get_user_rank(profile.get("total_bets", 0.0) * STARS_TO_USD)
+            rank_info = get_rank_info(current_rank_level)
+            claimed_ranks = profile.get("claimed_ranks", [])
+            
+            unclaimed_bonus = 0.0
+            rank_to_claim = 0
+            for r in range(1, current_rank_level + 1):
+                if r not in claimed_ranks:
+                    rank_to_claim = r
+                    unclaimed_bonus = RANKS[r]["bonus"]
+                    break
+            
+            if rank_to_claim > 0:
+                btn = InlineKeyboardButton("🏆 Claim rank bonus", callback_data=f"claim_rank_{rank_to_claim}")
+            else:
+                btn = InlineKeyboardButton("🔒 Claim rank bonus", callback_data="claim_rank_locked")
+                
+            text = (
+                f"🏆 Rank bonus\n\n"
+                f"ℹ️ Receive a bonus for reaching a new rank!\n"
+                f"The higher your rank — the bigger the bonus.\n\n"
+                f"💵 Your rank bonus: ${unclaimed_bonus:.2f}\n"
+                f"🥇 Current rank: {rank_info['name']}"
+            )
+            keyboard = [
+                [btn],
+                [InlineKeyboardButton("📋 Rank List", callback_data="bonus_rank_list_1")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]
+            ]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data.startswith("bonus_rank_list_"):
+            page = int(data.split("_")[-1])
+            profile = get_or_create_profile(user_id)
+            total_bets_usd = profile.get("total_bets", 0.0) * STARS_TO_USD
+            current_rank_level = get_user_rank(total_bets_usd)
+            
+            # Max pages = 11 (3 ranks per page)
+            total_pages = 11
+            start_idx = (page - 1) * 3 + 1
+            end_idx = min(start_idx + 2, len(RANKS))
+            
+            text_blocks = []
+            for r in range(start_idx, end_idx + 1):
+                if r not in RANKS:
+                    continue
+                rank = RANKS[r]
+                emoji = rank["emoji"]
+                tier = rank["tier"]
+                
+                block = f"<blockquote expandable>🔴 {emoji} <b>{rank['name']}</b>\n"
+                block += f"<i><b>💵 Bonus: ${rank['bonus']:.2f}</b></i>\n"
+                block += f"<i><b>💎 Required wager: ${rank['wager_required']:,.2f}</b></i>\n"
+                
+                # If this is the user's current rank, show progress
+                if r == current_rank_level:
+                    next_wager = RANKS.get(r + 1, rank)["wager_required"]
+                    current_wager = rank["wager_required"]
+                    if next_wager > current_wager:
+                        progress_pct = ((total_bets_usd - current_wager) / (next_wager - current_wager)) * 100
+                        progress_pct = max(0, min(100, progress_pct))
+                    else:
+                        progress_pct = 100.0
+                    
+                    block += f"\n🎯 Progress: {progress_pct:.2f}%\n"
+                    
+                    filled_chars = int(progress_pct / 10)
+                    empty_chars = 10 - filled_chars
+                    bar = "█" * filled_chars + "░" * empty_chars
+                    block += f"[{bar}] {emoji}\n"
+                    
+                    if next_wager > current_wager:
+                        remaining = next_wager - total_bets_usd
+                        if remaining < 0: remaining = 0
+                        block += f"<b>Remaining until rank up: ${remaining:,.2f}</b>\n"
+                
+                if rank["perks"]:
+                    # Ensure formatting is maintained for perks
+                    perks = rank["perks"].split("\n")
+                    formatted_perks = "\n".join([f"<i>{p}</i>" if p.startswith("✨") else f"<i>✨ {p}</i>" for p in perks])
+                    block += f"\n{formatted_perks}\n"
+                
+                block += "</blockquote>"
+                text_blocks.append(block)
+                
+            text = "\n\n".join(text_blocks)
+            
+            # Pagination buttons
+            nav_buttons = []
+            if page > 1:
+                nav_buttons.append(InlineKeyboardButton("←", callback_data=f"bonus_rank_list_{page-1}"))
+            else:
+                nav_buttons.append(InlineKeyboardButton("←", callback_data="ignore"))
+                
+            if page < total_pages:
+                nav_buttons.append(InlineKeyboardButton("→", callback_data=f"bonus_rank_list_{page+1}"))
+            else:
+                nav_buttons.append(InlineKeyboardButton("→", callback_data="ignore"))
+                
+            keyboard = [
+                nav_buttons,
+                [InlineKeyboardButton("⬅️ Back", callback_data="bonus_rank")]
+            ]
+            
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data == "claim_rank_locked":
+            await query.answer("You've already claimed bonus for this rank", show_alert=True)
+            return
+
+        if data.startswith("claim_rank_"):
+            rank_id = int(data.split("_")[-1])
+            profile = get_or_create_profile(user_id)
+            claimed_ranks = profile.get("claimed_ranks", [])
+            
+            if rank_id in claimed_ranks:
+                await query.answer("You've already claimed bonus for this rank", show_alert=True)
+                return
+                
+            bonus_usd = RANKS[rank_id]["bonus"]
+            bonus_stars = max(1, int(bonus_usd / STARS_TO_USD))
+            
+            adjust_user_balance(user_id, bonus_stars)
+            claimed_ranks.append(rank_id)
+            
+            db.update_profile(
+                user_id,
+                total_games=profile["total_games"],
+                total_bets=profile["total_bets"],
+                total_wins=profile["total_wins"],
+                total_losses=profile["total_losses"],
+                games_won=profile["games_won"],
+                games_lost=profile["games_lost"],
+                favorite_game=profile["favorite_game"],
+                biggest_win=profile["biggest_win"],
+                game_counts=profile["game_counts"],
+                rakeback_balance=profile.get("rakeback_balance", 0.0),
+                claimed_ranks=claimed_ranks,
+                last_reload_claim=profile.get("last_reload_claim")
+            )
+            
+            await query.answer(f"✅ Rank bonus of ${bonus_usd:.2f} credited to your balance!", show_alert=True)
+            current_rank_level = get_user_rank(profile.get("total_bets", 0.0) * STARS_TO_USD)
+            rank_info = get_rank_info(current_rank_level)
+            unclaimed_bonus = 0.0
+            rank_to_claim = 0
+            for r in range(1, current_rank_level + 1):
+                if r not in claimed_ranks:
+                    rank_to_claim = r
+                    unclaimed_bonus = RANKS[r]["bonus"]
+                    break
+            if rank_to_claim > 0:
+                btn = InlineKeyboardButton("🏆 Claim rank bonus", callback_data=f"claim_rank_{rank_to_claim}")
+            else:
+                btn = InlineKeyboardButton("🔒 Claim rank bonus", callback_data="claim_rank_locked")
+            text = (
+                f"🏆 Rank bonus\n\n"
+                f"ℹ️ Receive a bonus for reaching a new rank!\n"
+                f"The higher your rank — the bigger the bonus.\n\n"
+                f"💵 Your rank bonus: ${unclaimed_bonus:.2f}\n"
+                f"🥇 Current rank: {rank_info['name']}"
+            )
+            keyboard = [[btn], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data == "bonus_weekly":
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            days_ahead = 5 - now.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            next_saturday = now + timedelta(days=days_ahead)
+            next_saturday = next_saturday.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            diff = next_saturday - now
+            days, seconds = diff.days, diff.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+            countdown = f"{days}d {hours}h {minutes}m {seconds}s"
+            
+            is_saturday = now.weekday() == 5
+            
+            bonus_data = user_weekly_bonus_data.get(user_id)
+            iso_year, iso_week, _ = now.isocalendar()
+            current_iso_week = (iso_year, iso_week)
+            
+            if bonus_data and tuple(bonus_data.get("iso_week", ())) == current_iso_week:
+                bonus_stars = bonus_data.get("amount_stars", 20)
+                claimed = bonus_data.get("claimed", False)
+            else:
+                import random
+                bonus_stars = random.randint(20, 100)
+                claimed = False
+                user_weekly_bonus_data[user_id] = {
+                    "iso_week": current_iso_week,
+                    "amount_stars": bonus_stars,
+                    "claimed": False
+                }
+                
+            display_name = query.from_user.first_name or ""
+            if query.from_user.last_name:
+                display_name += f" {query.from_user.last_name}"
+            
+            has_name_bonus = "@Librateds" in display_name or "Librateds" in display_name
+            final_stars = int(bonus_stars * 1.1) if has_name_bonus else bonus_stars
+            bonus_usd = final_stars * STARS_TO_USD
+            
+            if is_saturday and not claimed:
+                btn = InlineKeyboardButton("🎁 Claim bonus", callback_data="claim_weekly_bonus")
+            else:
+                btn = InlineKeyboardButton("🔒 Claim bonus", callback_data="claim_weekly_locked")
+                
+            text = (
+                f"🎁 Receive a bonus every Saturday\n\n"
+                f"If you don't claim it during Saturday — it expires\n"
+                f"⚠️ Next bonus available in {countdown}\n\n"
+                f"> Add @Librateds to your name and get an extra +10% bonus\n\n"
+                f"💵 Your bonus: ${bonus_usd:.2f}"
+            )
+            keyboard = [[btn], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data == "claim_weekly_locked":
+            await query.answer("Bonus only available on Saturdays or already claimed", show_alert=True)
+            return
+            
+        if data == "claim_weekly_bonus":
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            is_saturday = now.weekday() == 5
+            
+            if not is_saturday:
+                await query.answer("Bonus is only available on Saturdays!", show_alert=True)
+                return
+                
+            bonus_data = user_weekly_bonus_data.get(user_id)
+            if not bonus_data:
+                await query.answer("No bonus data found.", show_alert=True)
+                return
+                
+            if bonus_data.get("claimed", False):
+                await query.answer("You've already claimed your weekly bonus!", show_alert=True)
+                return
+                
+            bonus_stars = bonus_data.get("amount_stars", 20)
+            display_name = query.from_user.first_name or ""
+            if query.from_user.last_name:
+                display_name += f" {query.from_user.last_name}"
+            has_name_bonus = "@Librateds" in display_name or "Librateds" in display_name
+            final_stars = int(bonus_stars * 1.1) if has_name_bonus else bonus_stars
+            bonus_usd = final_stars * STARS_TO_USD
+            
+            adjust_user_balance(user_id, final_stars)
+            user_weekly_bonus_data[user_id]["claimed"] = True
+            
+            await query.answer(f"✅ Weekly bonus of ${bonus_usd:.2f} credited to your balance!", show_alert=True)
+            
+            days_ahead = 5 - now.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            next_saturday = now + timedelta(days=days_ahead)
+            next_saturday = next_saturday.replace(hour=0, minute=0, second=0, microsecond=0)
+            diff = next_saturday - now
+            days, seconds = diff.days, diff.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+            countdown = f"{days}d {hours}h {minutes}m {seconds}s"
+            
+            text = (
+                f"🎁 Receive a bonus every Saturday\n\n"
+                f"If you don't claim it during Saturday — it expires\n"
+                f"⚠️ Next bonus available in {countdown}\n\n"
+                f"> Add @Librateds to your name and get an extra +10% bonus\n\n"
+                f"💵 Your bonus: ${bonus_usd:.2f}"
+            )
+            keyboard = [[InlineKeyboardButton("🔒 Claim bonus", callback_data="claim_weekly_locked")], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data == "bonus_rakeback":
+            profile = get_or_create_profile(user_id)
+            rakeback_stars = profile.get("rakeback_balance", 0.0)
+            current_rank_level = get_user_rank(profile.get("total_bets", 0.0) * STARS_TO_USD)
+            
+            if current_rank_level < 2:  # Bronze I
+                btn = InlineKeyboardButton("🔒 Claim rakeback", callback_data="claim_rakeback_norank")
+            elif rakeback_stars <= 0:
+                btn = InlineKeyboardButton("🔒 Claim rakeback", callback_data="claim_rakeback_empty")
+            else:
+                btn = InlineKeyboardButton("💸 Claim rakeback", callback_data="claim_rakeback")
+                
+            text = (
+                f"ℹ️ Rakeback is a return of part of your loss as a bonus.\n"
+                f"🏆 Available only from Bronze I rank and above!\n\n"
+                f"💵 Rakeback balance: ${(rakeback_stars * STARS_TO_USD):.2f}"
+            )
+            keyboard = [[btn], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+            
+        if data == "claim_rakeback_norank":
+            await query.answer("You need Bronze I rank to claim rakeback", show_alert=True)
+            return
+            
+        if data == "claim_rakeback_empty":
+            await query.answer("No rakeback available yet", show_alert=True)
+            return
+            
+        if data == "claim_rakeback":
+            profile = get_or_create_profile(user_id)
+            rakeback_stars = profile.get("rakeback_balance", 0.0)
+            
+            if rakeback_stars > 0:
+                adjust_user_balance(user_id, rakeback_stars)
+                rakeback_usd = rakeback_stars * STARS_TO_USD
+                
+                db.update_profile(
+                    user_id,
+                    total_games=profile["total_games"],
+                    total_bets=profile["total_bets"],
+                    total_wins=profile["total_wins"],
+                    total_losses=profile["total_losses"],
+                    games_won=profile["games_won"],
+                    games_lost=profile["games_lost"],
+                    favorite_game=profile["favorite_game"],
+                    biggest_win=profile["biggest_win"],
+                    game_counts=profile["game_counts"],
+                    rakeback_balance=0.0,
+                    claimed_ranks=profile.get("claimed_ranks", []),
+                    last_reload_claim=profile.get("last_reload_claim")
+                )
+                await query.answer(f"✅ Rakeback of ${rakeback_usd:.2f} credited to your balance!", show_alert=True)
+                
+                text = (
+                    f"ℹ️ Rakeback is a return of part of your loss as a bonus.\n"
+                    f"🏆 Available only from Bronze I rank and above!\n\n"
+                    f"💵 Rakeback balance: $0.00"
+                )
+                keyboard = [[InlineKeyboardButton("🔒 Claim rakeback", callback_data="claim_rakeback_empty")], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+
+        if data == "bonus_reload":
+            profile = get_or_create_profile(user_id)
+            current_rank_level = get_user_rank(profile.get("total_bets", 0.0) * STARS_TO_USD)
+            
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            iso_year, iso_week, _ = now.isocalendar()
+            current_iso_week_str = f"{iso_year}-{iso_week}"
+            
+            last_reload = profile.get("last_reload_claim")
+            
+            if current_rank_level < 14:
+                btn = InlineKeyboardButton("🔒 Claim reload", callback_data="claim_reload_norank")
+            elif last_reload == current_iso_week_str:
+                btn = InlineKeyboardButton("🔒 Claim reload", callback_data="claim_reload_claimed")
+            else:
+                btn = InlineKeyboardButton("⭐ Claim reload", callback_data="claim_reload")
+                
+            text = (
+                f"👑 Receive a weekly Reload for your activity\n\n"
+                f"⚠️ Reload available from rank\n"
+                f"◇ Diamond I"
+            )
+            keyboard = [[btn], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
+            
+        if data == "claim_reload_norank":
+            await query.answer("Reload available from Diamond I rank and above", show_alert=True)
+            return
+            
+        if data == "claim_reload_claimed":
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            days_ahead = 7 - now.weekday()
+            next_monday = now + timedelta(days=days_ahead)
+            next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+            diff = next_monday - now
+            days, seconds = diff.days, diff.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            await query.answer(f"Already claimed this week. Next reload in {days}d {hours}h {minutes}m", show_alert=True)
+            return
+            
+        if data == "claim_reload":
+            profile = get_or_create_profile(user_id)
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            iso_year, iso_week, _ = now.isocalendar()
+            current_iso_week_str = f"{iso_year}-{iso_week}"
+            
+            reload_usd = 10.00
+            reload_stars = max(1, int(reload_usd / STARS_TO_USD))
+            
+            adjust_user_balance(user_id, reload_stars)
+            
+            db.update_profile(
+                user_id,
+                total_games=profile["total_games"],
+                total_bets=profile["total_bets"],
+                total_wins=profile["total_wins"],
+                total_losses=profile["total_losses"],
+                games_won=profile["games_won"],
+                games_lost=profile["games_lost"],
+                favorite_game=profile["favorite_game"],
+                biggest_win=profile["biggest_win"],
+                game_counts=profile["game_counts"],
+                rakeback_balance=profile.get("rakeback_balance", 0.0),
+                claimed_ranks=profile.get("claimed_ranks", []),
+                last_reload_claim=current_iso_week_str
+            )
+            
+            await query.answer(f"✅ Reload bonus of ${reload_usd:.2f} credited to your balance!", show_alert=True)
+            
+            text = (
+                f"👑 Receive a weekly Reload for your activity\n\n"
+                f"⚠️ Reload available from rank\n"
+                f"◇ Diamond I"
+            )
+            keyboard = [[InlineKeyboardButton("🔒 Claim reload", callback_data="claim_reload_claimed")], [InlineKeyboardButton("⬅️ Back", callback_data="bonus_main")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
             return
         
         # Handle matches pagination
@@ -8374,7 +8753,7 @@ def get_cf_menu(user_id, balance_stars, use_stars=False):
         toggle_btn = "🪙 Coins"
 
     text = (
-        '<blockquote expandable>The game "coin flip" is a simple game of choosing between two options: head or tails. The player places a bet and guesses the outcome — if correct, they receive winnings equal to 2x their stake; if incorrect, the stake is lost. Everything is decided by a single click and a bit of luck.</blockquote>\n'
+        '<blockquote>The game "coin flip" is a simple game of choosing between two options: head or tails. The player places a bet and guesses the outcome — if correct, they receive winnings equal to 2x their stake; if incorrect, the stake is lost. Everything is decided by a single click and a bit of luck.</blockquote>\n'
         '⬆️ Choose a bet or enter your own\n'
         'Minimum bet - 0.10\n\n'
         f'🔵 Current balance: {balance_str}'
@@ -8437,7 +8816,7 @@ async def cf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_html(t("bet_greater_than_zero", user_id=user_id))
                 return
             if balance < bet_amount:
-                await update.message.reply_html(f"❌ Insufficient balance!\\n💵 Your balance: <b>{balance:,} ⭐</b>")
+                await update.message.reply_html(f"❌ Insufficient balance!\n💵 Your balance: <b>{balance:,} ⭐</b>")
                 return
             
             await update.message.delete()

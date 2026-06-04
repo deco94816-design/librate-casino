@@ -89,7 +89,10 @@ class Database:
                 favorite_game TEXT,
                 biggest_win REAL NOT NULL DEFAULT 0,
                 game_counts TEXT NOT NULL DEFAULT '{}',
-                registration_date TEXT
+                registration_date TEXT,
+                rakeback_balance REAL NOT NULL DEFAULT 0,
+                claimed_ranks TEXT NOT NULL DEFAULT '[]',
+                last_reload_claim TEXT
             );
             CREATE TABLE IF NOT EXISTS game_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -400,8 +403,8 @@ class Database:
                 conn.execute(
                     """INSERT INTO profiles (user_id, username, display_name, xp, total_games,
                     total_bets, total_wins, total_losses, games_won, games_lost, favorite_game,
-                    biggest_win, game_counts, registration_date)
-                    VALUES (?,?,?,?,0,0,0,0,0,0,NULL,0,'{}',?)""",
+                    biggest_win, game_counts, registration_date, rakeback_balance, claimed_ranks, last_reload_claim)
+                    VALUES (?,?,?,?,0,0,0,0,0,0,NULL,0,'{}',?,0,'[]',NULL)""",
                     (
                         user_id,
                         (username or "").lstrip("@"),
@@ -443,6 +446,9 @@ class Database:
                 "biggest_win": float(row["biggest_win"] or 0),
                 "game_counts": gc,
                 "registration_date": reg_dt,
+                "rakeback_balance": float(row["rakeback_balance"] or 0) if "rakeback_balance" in row.keys() else 0.0,
+                "claimed_ranks": _json_loads(row["claimed_ranks"], []) if "claimed_ranks" in row.keys() else [],
+                "last_reload_claim": row["last_reload_claim"] if "last_reload_claim" in row.keys() else None,
             }
 
     def update_profile(
@@ -458,12 +464,18 @@ class Database:
         favorite_game: str | None,
         biggest_win: float,
         game_counts: dict[str, Any],
+        rakeback_balance: float = 0.0,
+        claimed_ranks: list[int] = None,
+        last_reload_claim: str | None = None,
     ) -> None:
+        if claimed_ranks is None:
+            claimed_ranks = []
         with self._lock:
             conn = self.get_db_connection()
             conn.execute(
                 """UPDATE profiles SET total_games=?, total_bets=?, total_wins=?, total_losses=?,
-                games_won=?, games_lost=?, favorite_game=?, biggest_win=?, game_counts=?
+                games_won=?, games_lost=?, favorite_game=?, biggest_win=?, game_counts=?,
+                rakeback_balance=?, claimed_ranks=?, last_reload_claim=?
                 WHERE user_id=?""",
                 (
                     total_games,
@@ -475,6 +487,9 @@ class Database:
                     favorite_game,
                     biggest_win,
                     _json_dumps(dict(game_counts)),
+                    rakeback_balance,
+                    _json_dumps(claimed_ranks),
+                    last_reload_claim,
                     user_id,
                 ),
             )
