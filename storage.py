@@ -609,6 +609,7 @@ class Database:
             for r in cur.fetchall():
                 rows.append(
                     {
+                        "id": r["id"],
                         "game_type": r["game_type"],
                         "bet_amount": float(r["bet_amount"] or 0),
                         "win_amount": float(r["win_amount"] or 0),

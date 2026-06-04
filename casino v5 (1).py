@@ -4341,61 +4341,111 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Old progress bar function removed - using the new one for levels
 
 
+GAME_EMOJIS = {
+    "dice": "🎲",
+    "dice_battle": "🎲",
+    "coinflip": "🌑",
+    "mines": "💣",
+    "blackjack": "🃏",
+    "arrow": "🎯",
+    "dart": "🎯",
+    "bowl": "🎳",
+    "football": "⚽",
+    "soccer": "⚽",
+    "basket": "🏀",
+    "basketball": "🏀",
+    "predict": "🔮"
+}
+
+GAME_NAMES = {
+    "dice": "Dice",
+    "dice_battle": "Dice Battle",
+    "coinflip": "Flip",
+    "mines": "Mines",
+    "blackjack": "Blackjack",
+    "arrow": "Dart",
+    "dart": "Dart",
+    "bowl": "Bowl",
+    "football": "Football",
+    "soccer": "Football",
+    "basket": "Basket",
+    "basketball": "Basket",
+    "predict": "Predict"
+}
+
+async def send_or_edit_history(update_or_query, user_id, page=1):
+    history = db.get_game_history(user_id, limit=9999) # Fetch recent max
+    total_entries = len(history)
+    items_per_page = 5
+    total_pages = max(1, (total_entries + items_per_page - 1) // items_per_page)
+    
+    if page < 1: page = 1
+    if page > total_pages: page = total_pages
+    
+    start_idx = (page - 1) * items_per_page
+    end_idx = start_idx + items_per_page
+    
+    page_items = history[start_idx:end_idx]
+    
+    text = "📋 <b>Game history</b>\n\n"
+    
+    for item in page_items:
+        game_id = item['id']
+        gtype = item['game_type']
+        bet = item['bet_amount'] * STARS_TO_USD
+        win = item['win_amount'] * STARS_TO_USD
+        if not item['won']:
+            win = 0.00
+            
+        emoji = GAME_EMOJIS.get(gtype, "🎮")
+        name = GAME_NAMES.get(gtype, gtype.title())
+        
+        dt = item['timestamp']
+        if isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt)
+            except:
+                pass
+                
+        if hasattr(dt, 'strftime'):
+            dt_formatted = dt.strftime("%d.%m.%Y %H:%M")
+        else:
+            dt_formatted = str(dt)[:16].replace("-", ".")
+            
+        text += f'<blockquote expandable>{emoji} {name} #{game_id} | {dt_formatted}\n'
+        text += f'💵 Bet: ${bet:.2f}\n'
+        text += f'👑 Win: ${win:.2f}</blockquote>\n\n'
+        
+    text += f"Page {page}/{total_pages}"
+    
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton("←", callback_data=f"history_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton("←", callback_data="ignore"))
+        
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton("→", callback_data=f"history_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton("→", callback_data="ignore"))
+        
+    keyboard = []
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+        
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="close_history")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if hasattr(update_or_query, 'edit_message_text'):
+        await update_or_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="HTML")
+    else:
+        await update_or_query.reply_html(text, reply_markup=reply_markup)
+
 @handle_errors
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = user.id
-    
-    profile = get_or_create_profile(user_id, user.username or user.first_name)
-    history = user_game_history.get(user_id, [])
-    
-    total_games = profile.get('total_games', 0)
-    total_bets = profile.get('total_bets', 0)
-    total_wins = profile.get('total_wins', 0)
-    total_losses = profile.get('total_losses', 0)
-    games_won = profile.get('games_won', 0)
-    games_lost = profile.get('games_lost', 0)
-    
-    total_wagered = total_bets
-    net_profit = total_wins - total_losses
-    
-    total_bets_usd = total_bets * STARS_TO_USD
-    total_wins_usd = total_wins * STARS_TO_USD
-    total_losses_usd = total_losses * STARS_TO_USD
-    total_wagered_usd = total_wagered * STARS_TO_USD
-    net_profit_usd = net_profit * STARS_TO_USD
-    
-    if total_games > 0:
-        win_rate = (games_won / total_games) * 100
-    else:
-        win_rate = 0
-    
-    history_text = (
-        f"📊 <b>Game History</b>\n\n"
-        f"🎮 <b>Total Games Played:</b> {total_games}\n"
-        f"✅ Games Won: {games_won}\n"
-        f"❌ Games Lost: {games_lost}\n"
-        f"📈 Win Rate: {win_rate:.1f}%\n\n"
-        f"💰 <b>Financial Summary:</b>\n"
-        f"💵 Total Bets: ${total_bets_usd:.2f}\n"
-        f"💰 Total Wins: ${total_wins_usd:.2f}\n"
-        f"📉 Total Losses: ${total_losses_usd:.2f}\n"
-        f"🔄 Total Wagered: ${total_wagered_usd:.2f}\n"
-        f"{'📈' if net_profit >= 0 else '📉'} Net Profit: ${net_profit_usd:.2f}\n"
-    )
-    
-    if history:
-        history_text += "\n📜 <b>Recent Games:</b>\n"
-        recent_games = history[-5:]
-        for game in reversed(recent_games):
-            game_type = game['game_type']
-            game_info = GAME_TYPES.get(game_type, {'icon': '🎮', 'name': 'Unknown'})
-            status = "✅ Won" if game['won'] else "❌ Lost"
-            bet_usd = game['bet_amount'] * STARS_TO_USD
-            timestamp = game['timestamp'].strftime("%m/%d %H:%M")
-            history_text += f"{game_info['icon']} {game_info['name']} - {status} (${bet_usd:.2f}) - {timestamp}\n"
-    
-    await update.message.reply_html(history_text)
+    user_id = update.effective_user.id
+    await send_or_edit_history(update.message, user_id, page=1)
 
 
 def format_matches_page(history_list, page, total_pages):
@@ -5873,6 +5923,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Handle bonus menu navigation
+        if data == "close_history":
+            try:
+                await query.message.delete()
+            except:
+                pass
+            return
+            
+        if data.startswith("history_page_"):
+            page = int(data.split("_")[-1])
+            await send_or_edit_history(query, user_id, page)
+            return
+
         if data == "bonus_main":
             text = "⭐ Receive bonuses for activity and games"
             keyboard = [
