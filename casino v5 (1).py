@@ -5273,18 +5273,29 @@ async def complete_round(context, chat_id, user_id):
 
         game_over_keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton(t("play_again", user_id=user_id), callback_data=f"replay_{game_type}"),
-                InlineKeyboardButton(t("back_to_games", user_id=user_id), callback_data="show_games"),
+                InlineKeyboardButton("🔁 Repeat", callback_data=f"replay_{game_type}"),
+                InlineKeyboardButton("×2 Double", callback_data=f"double_{game_type}"),
             ]
         ])
+        
+        if p_score >= target:
+            msg_text = (
+                f"🔹 The game has ended{demo_tag}\n\n"
+                f"👑 Winner: {user_link} - {p_score} points\n"
+                f"👎 Loser: 🤖 Raika Game - {b_score} points\n"
+                f"Win + ${earned_usd:.2f}"
+            )
+        else:
+            msg_text = (
+                f"🔹 The game has ended{demo_tag}\n\n"
+                f"👑 Winner: 🤖 Raika Game - {b_score} points\n"
+                f"👎 Loser: {user_link} - {p_score} points\n"
+                f"Loss - ${bet_usd:.2f}"
+            )
 
         await context.bot.send_message(
             chat_id=chat_id,
-            text=(
-                f"{round_header}{demo_tag}\n\n"
-                f"{scores_block}\n\n"
-                f"{final_line}"
-            ),
+            text=msg_text,
             parse_mode=ParseMode.HTML,
             reply_markup=game_over_keyboard
         )
@@ -5693,6 +5704,64 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
+
+    # Coinflip Phase 1 callbacks
+    if data == "cf_toggle_curr":
+        use_stars = context.user_data.get('cf_use_stars', False)
+        context.user_data['cf_use_stars'] = not use_stars
+        balance = get_user_balance(user_id)
+        text, markup = get_cf_menu(user_id, balance, context.user_data['cf_use_stars'])
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        return
+        
+    if data.startswith("cf_bet_btn_"):
+        try:
+            bet_amount = int(data.split("_")[-1])
+        except ValueError:
+            bet_amount = 1
+        
+        balance = get_user_balance(user_id)
+        if balance < bet_amount and not is_admin(user_id):
+            await query.answer("❌ Insufficient balance!", show_alert=True)
+            return
+            
+        await query.message.delete()
+        context.user_data['cf_bet'] = bet_amount
+        bet_usd = bet_amount * STARS_TO_USD
+        profile = get_or_create_profile(user_id)
+        display_name = profile.get('display_name') or profile.get('username') or 'Player'
+        user_link = get_user_link(user_id, display_name)
+        
+        text = (
+            f"🌑 Coin Flip game by {user_link}\n\n"
+            f"Bet: ${bet_usd:.2f}\n"
+            f"Multiplier: ×{CF_MULTIPLIER}"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("🤖  Play against bot", callback_data="cf_play_bot")],
+            [InlineKeyboardButton("🔴  Cancel game", callback_data="cf_cancel_challenge")]
+        ]
+        
+        sent_msg = await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        
+        context.job_queue.run_once(
+            cf_challenge_timeout, 
+            60, 
+            data={
+                'chat_id': query.message.chat_id, 
+                'message_id': sent_msg.message_id,
+                'user_id': user_id,
+                'bet_stars': bet_amount
+            },
+            name=f"cf_timeout_{sent_msg.message_id}"
+        )
+        return
 
     # Auto-detect language on callback if not already set
     if user_id not in user_languages:
@@ -7394,7 +7463,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [
                 [
-                    InlineKeyboardButton(f"{config['emoji']} Play now! {config['emoji']}", callback_data=f"play_{game_type}"),
+                    InlineKeyboardButton("«Accept game»", callback_data=f"play_{game_type}"),
                 ],
                 [
                     InlineKeyboardButton(t("btn_cancel_game", user_id=user_id), callback_data=f"cancel_{game_type}"),
@@ -7406,12 +7475,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             demo_tag = " 🔑 DEMO" if is_demo else ""
             
+            profile = get_or_create_profile(user_id)
+            display_name = profile.get('display_name') or profile.get('username') or 'Player'
+            user_link = get_user_link(user_id, display_name)
+            
             sent_pts = await query.edit_message_text(
-                f"{config['emoji']} <b>{config['name']} vs 🤖 Bot</b>{demo_tag}\n\n"
-                f"💰 Bet: <b>{bet_amount} ⭐</b> (${bet_usd:.2f})\n"
-                f"📈 Multiplier: <b>×{multiplier}</b>\n"
-                f"🎮 Mode: {mode_display} - Up to {points_target} point{'s' if points_target > 1 else ''}\n\n"
-                f"Take turns {config['action']}ing {config['emoji']} — {desc}",
+                f"{config['emoji']} <b>{config['name']}</b>{demo_tag}\n\n"
+                f"Bet: ${bet_usd:.2f}\n"
+                f"Multiplier: ×{multiplier}\n"
+                f"Mode: {mode_display} - First to {points_target} point{'s' if points_target > 1 else ''}\n\n"
+                f"<i>To accept the challenge from player {user_link}, click «Accept game» to start PvP</i>",
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML
             )
@@ -7477,11 +7550,93 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bet_usd = bet_amount * STARS_TO_USD
             payout_usd = bet_usd * multiplier
 
+            mode_display = mode.capitalize()
+            if mode == "normal": mode_display = "Normal"
+            elif mode == "double": mode_display = "Double"
+            elif mode == "crazy": mode_display = "Crazy"
+
             await query.edit_message_text(
-                f"{config['emoji']} <b>{display_name} wants to play {config['name']}!</b>\n\n"
+                f"🔹 The game has started\n\n"
+                f"Player 1: {user_link}\n"
+                f"Player 2: 🤖 Raika Game\n"
                 f"Bet: ${bet_usd:.2f}\n"
-                f"Payout: ${payout_usd:.2f} {multiplier}x\n\n"
-                f"👤 {user_link}, it's your turn.",
+                f"Mode: {mode_display} - {points_target} points\n\n"
+                f"Roll the dice {config['emoji']}",
+                parse_mode=ParseMode.HTML,
+                reply_markup=build_copy_turn_reply_markup(user_id, config['emoji'])
+            )
+            return
+
+        # Double bet replay callback
+        if data.startswith("double_"):
+            game_type = data.replace("double_", "")
+            if game_type not in GAME_CONFIG:
+                await query.answer(t("err_unknown_game", user_id=user_id), show_alert=True)
+                return
+
+            if user_id in game_sessions:
+                await query.answer(t("err_active_game", user_id=user_id), show_alert=True)
+                return
+
+            last = user_last_game_settings.get(user_id)
+            if last and last.get('game_type') == game_type:
+                bet_amount = last['bet_amount'] * 2
+                mode = last.get('mode', 'normal')
+                points_target = last.get('points_target', 1)
+            else:
+                bet_amount = 20
+                mode = 'normal'
+                points_target = 1
+
+            balance = get_user_balance(user_id)
+            if balance < bet_amount and not is_admin(user_id):
+                await query.answer(f"❌ Insufficient balance! You have {balance} ⭐", show_alert=True)
+                return
+
+            await query.answer()
+
+            # Deduct balance
+            if not is_admin(user_id):
+                adjust_user_balance(user_id, -bet_amount, game=True)
+                user_balances[user_id] = get_user_balance(user_id)
+
+            multiplier = MULTIPLIERS[mode]
+            config = GAME_CONFIG[game_type]
+
+            game_sessions[user_id] = {
+                "game_type": game_type,
+                "mode": mode,
+                "points_target": points_target,
+                "player_score": 0,
+                "bot_score": 0,
+                "bet": bet_amount,
+                "multiplier": multiplier,
+                "chat_id": query.message.chat_id,
+                "message_id": query.message.message_id,
+                "is_demo": False,
+                "player_rolls_needed": 2 if mode == "double" else 1,
+                "player_rolls_done": 0,
+                "player_total": 0,
+                "waiting_for_player": True,
+            }
+
+            profile = get_or_create_profile(user_id)
+            display_name = profile.get('display_name') or profile.get('username') or 'Player'
+            user_link = get_user_link(user_id, display_name)
+            bet_usd = bet_amount * STARS_TO_USD
+
+            mode_display = mode.capitalize()
+            if mode == "normal": mode_display = "Normal"
+            elif mode == "double": mode_display = "Double"
+            elif mode == "crazy": mode_display = "Crazy"
+
+            await query.edit_message_text(
+                f"🔹 The game has started\n\n"
+                f"Player 1: {user_link}\n"
+                f"Player 2: 🤖 Raika Game\n"
+                f"Bet: ${bet_usd:.2f}\n"
+                f"Mode: {mode_display} - {points_target} points\n\n"
+                f"Roll the dice {config['emoji']}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=build_copy_turn_reply_markup(user_id, config['emoji'])
             )
@@ -7548,215 +7703,140 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bet_usd = bet_amount * STARS_TO_USD
             payout_usd = bet_usd * multiplier
 
+            mode_display = mode.capitalize()
+            if mode == "normal": mode_display = "Normal"
+            elif mode == "double": mode_display = "Double"
+            elif mode == "crazy": mode_display = "Crazy"
+
             await query.edit_message_text(
-                f"{config['emoji']} <b>{display_name} wants to play {config['name']}!</b>\n\n"
+                f"🔹 The game has started\n\n"
+                f"Player 1: {user_link}\n"
+                f"Player 2: 🤖 Raika Game\n"
                 f"Bet: ${bet_usd:.2f}\n"
-                f"Payout: ${payout_usd:.2f} {multiplier}x\n\n"
-                f"👤 {user_link}, it's your turn.",
+                f"Mode: {mode_display} - {points_target} points\n\n"
+                f"Roll the dice {config['emoji']}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=build_copy_turn_reply_markup(user_id, config['emoji'])
             )
             return
         
-        # ---- ââââ COINFLIP CALLBACKS ââââ ----
-        if data in ("cf_heads", "cf_tails"):
-            call = "heads" if data == "cf_heads" else "tails"
-            bet_amount = context.user_data.get('cf_bet', 0)
-            if bet_amount <= 0:
-                await query.answer(t("err_invalid_bet", user_id=user_id), show_alert=True)
-                return
+        # ---- COINFLIP CALLBACKS ----
+        if data == "cf_cancel_challenge":
+            current_jobs = context.job_queue.get_jobs_by_name(f"cf_timeout_{query.message.message_id}")
+            for job in current_jobs:
+                job.schedule_removal()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            return
 
+        if data == "cf_delete_msg":
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            return
+
+        if data == "cf_change_bet":
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            use_stars = context.user_data.get('cf_use_stars', False)
+            balance = get_user_balance(user_id)
+            text, markup = get_cf_menu(user_id, balance, use_stars)
+            sent = await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=markup, parse_mode="HTML")
+            register_menu_owner(sent, user_id)
+            return
+
+        if data == "cf_play_bot":
+            current_jobs = context.job_queue.get_jobs_by_name(f"cf_timeout_{query.message.message_id}")
+            for job in current_jobs:
+                job.schedule_removal()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            bet_amount = context.user_data.get('cf_bet', 10)
             bet_usd = bet_amount * STARS_TO_USD
-            payout_usd = bet_usd * CF_MULTIPLIER
-
-            context.user_data['cf_call'] = call
-            call_display = "Heads" if call == "heads" else "Tails"
-
+            balance = get_user_balance(user_id)
+            balance_usd = balance * STARS_TO_USD
+            text = (
+                f"🃏 Make your choice\n\n"
+                f"💵 Bet: ${bet_usd:.2f}\n"
+                f"🔵 Current balance: ${balance_usd:.2f}"
+            )
             keyboard = [
                 [
-                    InlineKeyboardButton(t("btn_confirm", user_id=user_id), callback_data="cf_confirm"),
-                    InlineKeyboardButton(t("btn_cancel", user_id=user_id), callback_data="cf_cancel"),
-                ]
+                    InlineKeyboardButton("Heads", callback_data="cf_heads"),
+                    InlineKeyboardButton("Tails", callback_data="cf_tails")
+                ],
+                [InlineKeyboardButton("🗑️  Delete", callback_data="cf_delete_msg")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                f"You're about to start a Coinflip Game!\n\n"
-                f"<b>Call:</b> {call_display}\n"
-                f"<b>Bet:</b> ${bet_usd:.2f}\n"
-                f"<b>Payout:</b> ${payout_usd:.2f} {CF_MULTIPLIER}x",
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
             )
             return
 
-        if data == "cf_confirm":
-            bet_amount = context.user_data.get('cf_bet', 0)
-            call = context.user_data.get('cf_call', 'heads')
-            if bet_amount <= 0:
-                await query.answer(t("err_invalid_bet", user_id=user_id), show_alert=True)
-                return
-
+        if data in ("cf_heads", "cf_tails"):
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            call = "heads" if data == "cf_heads" else "tails"
+            bet_amount = context.user_data.get('cf_bet', 10)
+            bet_usd = bet_amount * STARS_TO_USD
+            payout_usd = bet_amount * CF_MULTIPLIER * STARS_TO_USD
             balance = get_user_balance(user_id)
             if balance < bet_amount:
-                await query.edit_message_text(t("insufficient_balance", user_id=user_id), parse_mode=ParseMode.HTML)
+                await context.bot.send_message(query.message.chat_id, f"❌ Insufficient balance! You need {bet_amount} ⭐")
                 return
-
-            if user_id in coinflip_sessions:
-                await query.answer(t("err_active_coinflip", user_id=user_id), show_alert=True)
-                return
-
-            # Deduct bet
             adjust_user_balance(user_id, -bet_amount, game=True)
-            user_balances[user_id] = get_user_balance(user_id)
-
-            coinflip_sessions[user_id] = {
-                "call": call,
-                "bet": bet_amount,
-                "chat_id": query.message.chat_id,
-                "message_id": query.message.message_id,
-            }
-
-            bet_usd = bet_amount * STARS_TO_USD
-            payout_usd = bet_usd * CF_MULTIPLIER
-            call_display = "Heads" if call == "heads" else "Tails"
-
-            keyboard = [[InlineKeyboardButton(t("btn_flip_coin", user_id=user_id), callback_data="cf_flip")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                f"🤖 <b>Coinflip vs Bot</b>\n\n"
-                f"<b>Your call:</b> {call_display}\n"
-                f"<b>Bet:</b> ${bet_usd:.2f}\n"
-                f"<b>Payout:</b> ${payout_usd:.2f} ({CF_MULTIPLIER}x)\n\n"
-                f"Click to flip the coin!",
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML
-            )
-            return
-
-        if data == "cf_flip":
-            session = coinflip_sessions.get(user_id)
-            if not session:
-                await query.answer(t("err_no_active_coinflip", user_id=user_id), show_alert=True)
-                return
-
-            chat_id = session['chat_id']
-            bet_amount = session['bet']
-            call = session['call']
-            bet_usd = bet_amount * STARS_TO_USD
-            payout_usd = bet_usd * CF_MULTIPLIER
-
-            # Remove flip button
-            await query.edit_message_reply_markup(reply_markup=None)
-
-            # Random outcome
+            import random
             outcome = random.choice(["heads", "tails"])
-            outcome_display = "Heads" if outcome == "heads" else "Tails"
-
-            # Send sticker (fallback to text if stickers are not configured)
+            outcome_emoji = "🌝" if outcome == "heads" else "🌚"
+            player_won = (outcome == call)
             sticker_id = coinflip_stickers.get(outcome)
             if sticker_id:
-                await context.bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
+                await context.bot.send_sticker(chat_id=query.message.chat_id, sticker=sticker_id)
+                import asyncio
                 await asyncio.sleep(2)
             else:
-                fallback_face = "🙂" if outcome == "heads" else "🪙"
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Coin result: {fallback_face} <b>{outcome_display}</b>",
-                    parse_mode=ParseMode.HTML
-                )
+                await context.bot.send_message(chat_id=query.message.chat_id, text=f"Coin result: {outcome_emoji}")
+                import asyncio
                 await asyncio.sleep(1)
-
-            # Get user display
-            profile = get_or_create_profile(user_id)
-            display_name = profile.get('display_name') or profile.get('username') or 'Player'
-
-            player_won = (outcome == call)
-
             if player_won:
                 winnings_int = int(bet_amount * CF_MULTIPLIER)
                 paid = adjust_user_balance(user_id, winnings_int, game=True)
-                if paid is False:
-                    result_line = "🔧 <b>Casino Maintenance</b>\n\nUnable to process win right now. Please try again shortly."
-                else:
-                    user_balances[user_id] = get_user_balance(user_id)
-                    stats_game_type = 'coinflip'
-                    update_game_stats(user_id, stats_game_type, bet_amount, winnings_int, True)
-                    result_line = f"🎉 <b>{display_name}</b> wins and earns <b>${payout_usd:.2f}</b> ({CF_MULTIPLIER}x)"
-            else:
-                update_game_stats(user_id, 'coinflip', bet_amount, 0, False)
-                result_line = f"🤖 <b>Bot</b> wins and earns <b>${payout_usd:.2f}</b> ({CF_MULTIPLIER}x)"
-
-            del coinflip_sessions[user_id]
-
-            # Store last bet for play again
-            context.user_data['cf_last_bet'] = bet_amount
-
-            game_over_keyboard = [
-                [InlineKeyboardButton(t("btn_play_again", user_id=user_id), callback_data="cf_play_again")],
-                [InlineKeyboardButton(t("back_to_games", user_id=user_id), callback_data="show_games")],
-            ]
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"🏆 <b>Game Over!</b>\n\n"
-                     f"<b>Outcome:</b> {outcome_display}\n\n"
-                     f"{result_line}",
-                reply_markup=InlineKeyboardMarkup(game_over_keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            return
-
-        if data == "cf_cancel":
-            # Refund if bet was already deducted
-            if user_id in coinflip_sessions:
-                session = coinflip_sessions[user_id]
-                adjust_user_balance(user_id, session['bet'])
                 user_balances[user_id] = get_user_balance(user_id)
-                del coinflip_sessions[user_id]
-
-            context.user_data.pop('cf_bet', None)
-            context.user_data.pop('cf_call', None)
-
-            await query.edit_message_text(t("cf_cancelled", user_id=user_id), parse_mode=ParseMode.HTML)
-            return
-
-        if data == "cf_play_again":
-            last_bet = context.user_data.get('cf_last_bet', 0)
-            if last_bet <= 0:
-                await query.answer()
-                await query.edit_message_text(
-                    "🎲 <b>Coinflip</b>\n\nUse /cf <amount> to play!",
-                    parse_mode=ParseMode.HTML
-                )
-                return
-
-            if user_id in coinflip_sessions:
-                await query.answer(t("err_active_coinflip", user_id=user_id), show_alert=True)
-                return
-
-            balance = get_user_balance(user_id)
-            if balance < last_bet:
-                await query.answer(f"❌ Insufficient balance! You have {balance} ⭐", show_alert=True)
-                return
-
-            await query.answer()
-            context.user_data['cf_bet'] = last_bet
-
+                update_game_stats(user_id, 'coinflip', bet_amount, winnings_int, True)
+                win_loss_line = f"🏆 Win: ${payout_usd:.2f}"
+            else:
+                user_balances[user_id] = get_user_balance(user_id)
+                update_game_stats(user_id, 'coinflip', bet_amount, 0, False)
+                win_loss_line = f"💀 Loss: ${bet_usd:.2f}"
+            new_balance_usd = user_balances[user_id] * STARS_TO_USD
+            result_text = (
+                f"🪙 Bet: ${bet_usd:.2f}\n\n"
+                f"History: {'Heads' if outcome == 'heads' else 'Tails'}\n\n"
+                f"{win_loss_line}\n"
+                f"🔵 Current balance: ${new_balance_usd:.2f}"
+            )
             keyboard = [
                 [
-                    InlineKeyboardButton(t("cf_heads", user_id=user_id), callback_data="cf_heads"),
-                    InlineKeyboardButton(t("cf_tails", user_id=user_id), callback_data="cf_tails"),
-                ],
-                [InlineKeyboardButton(t("btn_cancel", user_id=user_id), callback_data="cf_cancel")]
+                    InlineKeyboardButton("🔄 Repeat", callback_data="cf_play_bot"),
+                    InlineKeyboardButton("📝 Change bet", callback_data="cf_change_bet")
+                ]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                f"🎲 <b>Coinflip — {last_bet} ⭐</b>\n\n"
-                f"Call the side you believe the coin will land on:",
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=result_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
             )
             return
 
@@ -8267,6 +8347,67 @@ async def handle_cflip_sticker(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_html(t("cf_setup_complete", user_id=user_id))
 
 
+def get_cf_menu(user_id, balance_stars, use_stars=False):
+    b_10 = int(balance_stars * 0.10)
+    b_25 = int(balance_stars * 0.25)
+    b_50 = int(balance_stars * 0.50)
+    b_100 = int(balance_stars)
+
+    if b_10 < 1: b_10 = 1
+    if b_25 < 1: b_25 = 1
+    if b_50 < 1: b_50 = 1
+    if b_100 < 1: b_100 = 1
+
+    if use_stars:
+        btn_10 = f"{b_10} ⭐"
+        btn_25 = f"{b_25} ⭐"
+        btn_50 = f"{b_50} ⭐"
+        btn_100 = f"{b_100} ⭐"
+        balance_str = f"{balance_stars:,} ⭐"
+        toggle_btn = "💵 USD"
+    else:
+        btn_10 = f"${(b_10 * STARS_TO_USD):.2f}"
+        btn_25 = f"${(b_25 * STARS_TO_USD):.2f}"
+        btn_50 = f"${(b_50 * STARS_TO_USD):.2f}"
+        btn_100 = f"${(b_100 * STARS_TO_USD):.2f}"
+        balance_str = f"${(balance_stars * STARS_TO_USD):.2f}"
+        toggle_btn = "🪙 Coins"
+
+    text = (
+        '<blockquote expandable>The game "coin flip" is a simple game of choosing between two options: head or tails. The player places a bet and guesses the outcome — if correct, they receive winnings equal to 2x their stake; if incorrect, the stake is lost. Everything is decided by a single click and a bit of luck.</blockquote>\n'
+        '⬆️ Choose a bet or enter your own\n'
+        'Minimum bet - 0.10\n\n'
+        f'🔵 Current balance: {balance_str}'
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton(btn_10, callback_data=f"cf_bet_btn_{b_10}"),
+            InlineKeyboardButton(btn_25, callback_data=f"cf_bet_btn_{b_25}")
+        ],
+        [
+            InlineKeyboardButton(btn_50, callback_data=f"cf_bet_btn_{b_50}"),
+            InlineKeyboardButton(btn_100, callback_data=f"cf_bet_btn_{b_100}")
+        ],
+        [InlineKeyboardButton(toggle_btn, callback_data="cf_toggle_curr")]
+    ]
+    return text, InlineKeyboardMarkup(keyboard)
+
+async def cf_cancel_game(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, user_id: int, amount_usd: float):
+    # This will be called when game expires (Phase 2)
+    profile = get_or_create_profile(user_id)
+    display_name = profile.get('display_name') or profile.get('username') or 'Player'
+    user_link = get_user_link(user_id, display_name)
+    
+    text = f"🌑 Coin Flip game by {user_link} for ${amount_usd:.2f} was canceled — nobody accepted the invitation"
+    
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass
+        
+    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
+
 @handle_errors
 async def cf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -8277,8 +8418,6 @@ async def cf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     get_or_create_profile(user_id, username)
 
-    # Keep /cf playable even when custom stickers are not configured.
-
     if user_id in coinflip_sessions:
         await update.message.reply_html(t("cf_active", user_id=user_id))
         return
@@ -8287,52 +8426,65 @@ async def cf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_html(t("finish_current_game", user_id=user_id))
         return
 
-    args = context.args
-    if not args:
-        await update.message.reply_html(t("cf_usage", user_id=user_id))
-        return
-
     balance = get_user_balance(user_id)
-    arg = args[0].lower()
 
-    if arg == "all":
-        bet_amount = balance
-    elif arg == "half":
-        bet_amount = balance // 2
-    else:
+    # Check args for custom bet
+    args = context.args
+    if args:
         try:
-            bet_amount = int(arg)
-        except ValueError:
-            await update.message.reply_html(t("invalid_amount", user_id=user_id))
+            bet_amount = int(args[0])
+            if bet_amount <= 0:
+                await update.message.reply_html(t("bet_greater_than_zero", user_id=user_id))
+                return
+            if balance < bet_amount:
+                await update.message.reply_html(f"❌ Insufficient balance!\\n💵 Your balance: <b>{balance:,} ⭐</b>")
+                return
+            
+            await update.message.delete()
+            context.user_data['cf_bet'] = bet_amount
+            bet_usd = bet_amount * STARS_TO_USD
+            profile = get_or_create_profile(user_id)
+            display_name = profile.get('display_name') or profile.get('username') or 'Player'
+            user_link = get_user_link(user_id, display_name)
+            
+            text = (
+                f"🌑 Coin Flip game by {user_link}\n\n"
+                f"Bet: ${bet_usd:.2f}\n"
+                f"Multiplier: ×{CF_MULTIPLIER}"
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("🤖  Play against bot", callback_data="cf_play_bot")],
+                [InlineKeyboardButton("🔴  Cancel game", callback_data="cf_cancel_challenge")]
+            ]
+            
+            sent_msg = await context.bot.send_message(
+                chat_id=update.message.chat_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
+            
+            context.job_queue.run_once(
+                cf_challenge_timeout, 
+                60, 
+                data={
+                    'chat_id': update.message.chat_id, 
+                    'message_id': sent_msg.message_id,
+                    'user_id': user_id,
+                    'bet_stars': bet_amount
+                },
+                name=f"cf_timeout_{sent_msg.message_id}"
+            )
             return
+        except ValueError:
+            pass
 
-    if bet_amount <= 0:
-        await update.message.reply_html(t("bet_greater_than_zero", user_id=user_id))
-        return
-
-    if balance < bet_amount:
-        await update.message.reply_html(
-            f"❌ Insufficient balance!\n💰 Your balance: <b>{balance:,} ⭐</b>",
-        )
-        return
-
-    context.user_data['cf_bet'] = bet_amount
-
-    keyboard = [
-        [
-            InlineKeyboardButton(t("cf_heads", user_id=user_id), callback_data="cf_heads"),
-            InlineKeyboardButton(t("cf_tails", user_id=user_id), callback_data="cf_tails"),
-        ],
-        [InlineKeyboardButton(t("cancel_button", user_id=user_id), callback_data="cf_cancel")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    sent = await update.message.reply_html(
-        t("cf_call_side", user_id=user_id),
-        reply_markup=reply_markup
-    )
+    # No args or invalid arg, show the menu
+    use_stars = context.user_data.get('cf_use_stars', False)
+    text, markup = get_cf_menu(user_id, balance, use_stars)
+    sent = await update.message.reply_html(text, reply_markup=markup)
     register_menu_owner(sent, user_id)
-
 
 # ==================== BLACKJACK GAME LOGIC ====================
 
@@ -10768,7 +10920,8 @@ async def cmd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /dice, /bowl, /dart, /arrow (dart), /football, /basket — Emoji games\n"
         "• /demo — Demo games (no bet)\n"
         "• /predict — Predictor game\n"
-        "• /cflip, /cf — Coinflip\n"
+        "  /cfad - Setup Coinflip Stickers (Admin)\n"
+        "  /cf — Coinflip Game\n"
         "• /blackjack or /bj — Blackjack\n\n"
         "<b>Profile &amp; social</b>\n"
         "• /profile, /levels, /history, /matches, /leaderboard\n"
@@ -12587,7 +12740,7 @@ def main():
     application.add_handler(CommandHandler("predict", predict_command))
 
     # Coinflip
-    application.add_handler(CommandHandler("cflip", cflip_setup_command))
+    application.add_handler(CommandHandler("cfad", cflip_setup_command))
     application.add_handler(CommandHandler("cf", cf_command))
 
     # Blackjack
