@@ -1327,12 +1327,13 @@ def format_user_display(user_id, profile):
     return get_user_link(user_id, display_name)
 
 
+from telegram import CopyTextButton
+
 def build_copy_turn_reply_markup(user_id: int, game_emoji: str):
-    """Create a one-tap button that prefills only the game emoji."""
+    """Create a one-tap button that copies the game emoji to clipboard."""
     _ = user_id
-    prefill_text = game_emoji
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Copy", switch_inline_query_current_chat=prefill_text)]
+        [InlineKeyboardButton(f"🗒 Click To Copy ({game_emoji})", copy_text=CopyTextButton(game_emoji))]
     ])
 
 
@@ -8281,13 +8282,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Copy emoji button fallback (for older telegram lib without CopyTextButton)
-        if data.startswith("copy_emoji_"):
-            game_type = data.replace("copy_emoji_", "")
-            config = GAME_CONFIG.get(game_type)
-            if config:
-                await query.answer(f"Send this emoji: {config['tg_emoji']}", show_alert=True)
-            return
+
         
         # Cashout button callback — end game early, return partial bet
         if data.startswith("cashout_"):
