@@ -13238,7 +13238,7 @@ def main():
             application.add_handler(CommandHandler(cmd_name, obj))
 
     application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.Regex('^💎\s+Deposit\s+Crypto$'), lambda u,c: deposit_command(u,c)))
+    application.add_handler(MessageHandler(filters.Regex(r'^💎\s+Deposit\s+Crypto$'), lambda u,c: deposit_command(u,c)))
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_broadcast_capture, block=False), group=1)
