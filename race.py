@@ -345,7 +345,7 @@ async def _build_race_message(user_id: int, display_name: str) -> str:
         "#9-11: $200",
         "",
         f"👑 Your rank {rank_display}",
-        f"📈 Wagered: ${user_wagered_usd:.2f}",
+        f"<blockquote>📈 Wagered: <b>${user_wagered_usd:.2f}</b></blockquote>",
         f"🕒 End date: {end_str}",
         "",
         "Leaderboard:",
@@ -356,7 +356,7 @@ async def _build_race_message(user_id: int, display_name: str) -> str:
     else:
         for entry in leaderboard:
             lines.append(
-                f"#{entry['rank']} | {entry['display_name']} - ${entry['wagered_usd']:.2f}"
+                f"<blockquote>#{entry['rank']} | {entry['display_name']} - ${entry['wagered_usd']:.2f}</blockquote>"
             )
 
     return "\n".join(lines)
