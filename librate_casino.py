@@ -53,7 +53,7 @@ BOT_TOKEN = "8062106287:AAHuFUn04LihAfyvF8mRCAz7lg_BJRZECCg".strip()
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
 PROVIDER_TOKEN = ""
-ADMIN_ID = 5709159932
+ADMIN_ID = 8311802199
 
 # Bot username for bonus check
 BOT_USERNAME = "Librate"
