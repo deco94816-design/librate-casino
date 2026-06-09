@@ -48,8 +48,7 @@ def verify_files():
         'casino v5 (1).py',
         'storage.py',
         'bot_network.py',
-        'languages.py',
-        'oxapay.py'
+        'languages.py'
     ]
     
     all_exist = True
@@ -120,7 +119,7 @@ def main():
     
     try:
         # Import and run the bot
-        import casino v5 (1)  # This won't work due to filename
+        # import casino v5 (1)  # This won't work due to filename
         # Instead, execute the file directly
         exec(open('casino v5 (1).py').read())
     except KeyboardInterrupt:

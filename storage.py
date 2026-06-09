@@ -129,32 +129,27 @@ class Database:
                 status TEXT,
                 created TEXT
             );
-            CREATE TABLE IF NOT EXISTS withdrawals (
-                tx_id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                stars REAL,
-                ton_amount REAL,
-                status TEXT,
-                exchange_id TEXT,
-                created TEXT,
-                data TEXT
+
+            CREATE TABLE IF NOT EXISTS admins (
+                user_id INTEGER PRIMARY KEY
             );
             CREATE TABLE IF NOT EXISTS deposits (
                 track_id TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
-                address TEXT,
-                currency TEXT,
-                amount_usd REAL,
-                status TEXT DEFAULT 'pending',
-                pay_amount REAL,
-                credited INTEGER DEFAULT 0,
-                created TEXT
-            );
-            CREATE TABLE IF NOT EXISTS admins (
-                user_id INTEGER PRIMARY KEY
+                address TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                amount_usd REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                pay_amount REAL NOT NULL DEFAULT 0,
+                credited INTEGER NOT NULL DEFAULT 0,
+                created TEXT NOT NULL
             );
             """
         )
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN crypto_balance REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # column likely exists
         conn.commit()
 
     # --- settings ---
@@ -190,12 +185,7 @@ class Database:
                 pass
 
     # --- counters / globals ---
-    def get_withdrawal_counter(self) -> int:
-        v = self._get_setting("withdrawal_counter")
-        return int(v) if v is not None else 0
 
-    def set_withdrawal_counter(self, n: int) -> None:
-        self._set_setting("withdrawal_counter", str(int(n)))
 
     def get_ticket_counter(self) -> int:
         v = self._get_setting("ticket_counter")
@@ -204,12 +194,7 @@ class Database:
     def set_ticket_counter(self, n: int) -> None:
         self._set_setting("ticket_counter", str(int(n)))
 
-    def get_min_withdrawal(self) -> int:
-        v = self._get_setting("min_withdrawal")
-        return int(v) if v is not None else 200
 
-    def set_min_withdrawal(self, n: int) -> None:
-        self._set_setting("min_withdrawal", str(int(n)))
 
     def get_casino_bankroll(self) -> float:
         v = self._get_setting("casino_bankroll")
@@ -218,11 +203,7 @@ class Database:
     def set_casino_bankroll(self, amount: float) -> None:
         self._set_setting("casino_bankroll", str(float(amount)))
 
-    def get_withdraw_video_file_id(self) -> str | None:
-        return self._get_setting("withdraw_video_file_id")
 
-    def set_withdraw_video_file_id(self, file_id: str | None) -> None:
-        self._set_setting("withdraw_video_file_id", file_id)
 
     def get_bot_language(self) -> str:
         return self._get_setting("bot_language") or "en"
@@ -246,12 +227,7 @@ class Database:
     def set_bot_identity(self, identity: dict[str, Any]) -> None:
         self._set_setting("bot_identity", _json_dumps(identity))
 
-    def get_all_crypto_addresses(self) -> dict[str, Any]:
-        return _json_loads(self._get_setting("crypto_addresses"), {})
 
-    def replace_crypto_addresses(self, d: dict[str, Any]) -> None:
-        """Persist full crypto_addresses map (same keys as in-memory dict)."""
-        self._set_setting("crypto_addresses", _json_dumps(d))
 
     def get_frozen_users(self) -> set[int]:
         data = _json_loads(self._get_setting("frozen_users"), [])
@@ -316,24 +292,7 @@ class Database:
             )
             conn.commit()
 
-    def get_user_crypto_balance(self, user_id: int) -> float:
-        with self._lock:
-            conn = self.get_db_connection()
-            self._ensure_user(conn, user_id)
-            r = conn.execute(
-                "SELECT crypto_balance FROM users WHERE user_id=?", (user_id,)
-            ).fetchone()
-            return float(r[0] or 0)
 
-    def adjust_user_crypto_balance(self, user_id: int, delta: float) -> None:
-        with self._lock:
-            conn = self.get_db_connection()
-            self._ensure_user(conn, user_id)
-            conn.execute(
-                "UPDATE users SET crypto_balance = crypto_balance + ? WHERE user_id=?",
-                (float(delta), user_id),
-            )
-            conn.commit()
 
     def is_user_banned(self, user_id: int) -> bool:
         with self._lock:
@@ -651,105 +610,7 @@ class Database:
             )
             conn.commit()
 
-    def add_withdrawal(
-        self,
-        *,
-        tx_id: str,
-        user_id: int,
-        stars: float,
-        ton_amount: float | None,
-        status: str,
-        exchange_id: str | None,
-        created: datetime,
-        data: dict[str, Any],
-    ) -> None:
-        with self._lock:
-            conn = self.get_db_connection()
-            conn.execute(
-                """INSERT OR REPLACE INTO withdrawals
-                (tx_id, user_id, stars, ton_amount, status, exchange_id, created, data)
-                VALUES (?,?,?,?,?,?,?,?)""",
-                (
-                    tx_id,
-                    user_id,
-                    stars,
-                    ton_amount,
-                    status,
-                    exchange_id,
-                    created.isoformat() if hasattr(created, "isoformat") else str(created),
-                    _json_dumps(data),
-                ),
-            )
-            conn.commit()
 
-    def create_deposit(
-        self,
-        *,
-        user_id: int,
-        track_id: str,
-        address: str,
-        currency: str,
-        amount_usd: float,
-    ) -> None:
-        with self._lock:
-            conn = self.get_db_connection()
-            conn.execute(
-                """INSERT OR REPLACE INTO deposits
-                (track_id, user_id, address, currency, amount_usd, status, credited, created)
-                VALUES (?,?,?,?,?,'pending',0,?)""",
-                (
-                    track_id,
-                    user_id,
-                    address,
-                    currency,
-                    float(amount_usd),
-                    datetime.now().isoformat(),
-                ),
-            )
-            conn.commit()
-
-    def get_pending_deposits(self) -> list[dict[str, Any]]:
-        with self._lock:
-            conn = self.get_db_connection()
-            cur = conn.execute(
-                "SELECT track_id, user_id, amount_usd, currency FROM deposits WHERE status='pending'"
-            )
-            return [
-                {
-                    "track_id": r["track_id"],
-                    "user_id": int(r["user_id"]),
-                    "amount_usd": float(r["amount_usd"] or 0),
-                    "currency": r["currency"] or "USDT",
-                }
-                for r in cur.fetchall()
-            ]
-
-    def deposit_already_credited(self, track_id: str) -> bool:
-        with self._lock:
-            conn = self.get_db_connection()
-            r = conn.execute(
-                "SELECT credited FROM deposits WHERE track_id=?", (track_id,)
-            ).fetchone()
-            return bool(r and r[0])
-
-    def mark_deposit_paid(self, track_id: str, pay_amount: float) -> None:
-        with self._lock:
-            conn = self.get_db_connection()
-            conn.execute(
-                """UPDATE deposits SET status='paid', pay_amount=?, credited=1
-                WHERE track_id=?""",
-                (float(pay_amount), track_id),
-            )
-            conn.commit()
-
-    def mark_deposit_expired(self, track_id: str, status: str) -> None:
-        with self._lock:
-            conn = self.get_db_connection()
-            conn.execute(
-                "UPDATE deposits SET status=? WHERE track_id=?",
-                (status, track_id),
-            )
-            conn.commit()
 
     # --- aggregates ---
     def get_top_balances(self, n: int) -> list[tuple[int, float]]:
@@ -766,6 +627,54 @@ class Database:
             conn = self.get_db_connection()
             r = conn.execute("SELECT COALESCE(SUM(balance),0) FROM users").fetchone()
             return float(r[0] or 0)
+    # --- crypto / auto_deposit logic ---
+    def create_deposit(self, user_id: int, track_id: str, address: str, currency: str, amount_usd: float) -> None:
+        with self._lock:
+            conn = self.get_db_connection()
+            created = datetime.utcnow().isoformat()
+            conn.execute(
+                "INSERT INTO deposits (track_id, user_id, address, currency, amount_usd, status, pay_amount, credited, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (track_id, user_id, address, currency, amount_usd, 'pending', 0.0, 0, created)
+            )
+            conn.commit()
+
+    def get_pending_deposits(self) -> list[dict]:
+        with self._lock:
+            conn = self.get_db_connection()
+            cur = conn.execute("SELECT track_id, user_id, address, currency, amount_usd, status, pay_amount, credited, created FROM deposits WHERE status='pending'")
+            return [dict(r) for r in cur.fetchall()]
+
+    def deposit_already_credited(self, track_id: str) -> bool:
+        with self._lock:
+            conn = self.get_db_connection()
+            r = conn.execute("SELECT credited FROM deposits WHERE track_id=?", (track_id,)).fetchone()
+            if r and r[0] == 1:
+                return True
+            return False
+
+    def mark_deposit_paid(self, track_id: str, pay_amount: float) -> None:
+        with self._lock:
+            conn = self.get_db_connection()
+            conn.execute("UPDATE deposits SET status='paid', pay_amount=?, credited=1 WHERE track_id=?", (pay_amount, track_id))
+            conn.commit()
+
+    def mark_deposit_expired(self, track_id: str, status: str) -> None:
+        with self._lock:
+            conn = self.get_db_connection()
+            conn.execute("UPDATE deposits SET status=? WHERE track_id=?", (status, track_id))
+            conn.commit()
+
+    def adjust_user_crypto_balance(self, user_id: int, delta: float) -> None:
+        with self._lock:
+            conn = self.get_db_connection()
+            conn.execute("UPDATE users SET crypto_balance = crypto_balance + ? WHERE user_id = ?", (delta, user_id))
+            conn.commit()
+
+    def get_user_crypto_balance(self, user_id: int) -> float:
+        with self._lock:
+            conn = self.get_db_connection()
+            r = conn.execute("SELECT crypto_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
+            return float(r[0]) if r else 0.0
 
 
 db = Database()

@@ -27,12 +27,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # Import SQLite storage layer
 from storage import db
-
+from auto_deposit import setup_deposit_module, get_ton_price_usd
 # Import multi-language support
 from languages import detect_lang, get_lang_string, SUPPORTED_LANGS
 
 # OxaPay crypto payment integration
-import oxapay
 
 # Multi-bot network management
 from bot_network import (
@@ -568,13 +567,11 @@ def load_data():
         # Note: Most functions now use db directly, but we keep this for compatibility
         
         # Load withdrawal counter
-        withdrawal_counter = db.get_withdrawal_counter()
         
         # Load ticket counter
         ticket_counter = db.get_ticket_counter()
         
         # Load min withdrawal
-        MIN_WITHDRAWAL = db.get_min_withdrawal()
         
         # Load casino bankroll (seed to 33535.65 on first run)
         casino_bankroll_usd = db.get_casino_bankroll()
@@ -583,7 +580,6 @@ def load_data():
             db.set_casino_bankroll(casino_bankroll_usd)
         
         # Load withdraw video file ID
-        withdraw_video_file_id = db.get_withdraw_video_file_id()
         
         # Load bot language
         bot_language = db.get_bot_language()
@@ -601,7 +597,6 @@ def load_data():
         frozen_users.update(db.get_frozen_users())
 
         # Load crypto addresses
-        crypto_addresses.update(db.get_all_crypto_addresses())
         
         # Load user balances into memory cache for compatibility
         conn = db.get_db_connection()
@@ -2999,7 +2994,6 @@ async def set_video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].lower() == 'remove':
         if withdraw_video_file_id:
             withdraw_video_file_id = None
-            db.set_withdraw_video_file_id(None)
             await update.message.reply_html(
                 "✅ <b>Withdraw video removed!</b>\n\n"
                 "The /withdraw command will now send text only."
@@ -3096,7 +3090,6 @@ async def handle_video_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     global withdraw_video_file_id
     withdraw_video_file_id = video.file_id
-    db.set_withdraw_video_file_id(video.file_id)
     context.user_data['waiting_for_video'] = False
     
     await update.message.reply_html(
@@ -4658,46 +4651,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_errors
 async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global STARS_TO_USD
     user_id = update.effective_user.id
     balance = get_user_balance(user_id)
-    balance_usd = balance * STARS_TO_USD
     
-    admin_note = " (Admin - Unlimited)" if is_admin(user_id) else ""
+    ton_price = await get_ton_price_usd()
+    if ton_price:
+        STARS_TO_USD = ton_price / 200
+        
+    usd_value = balance * STARS_TO_USD
     
-    # Get bot username for URL buttons
-    try:
-        bot_info = await context.bot.get_me()
-        bot_username = bot_info.username if bot_info.username else "Iibratebot"
-    except Exception:
-        bot_username = "Iibratebot"  # Fallback
-    
-    # Try to use template first
-    template_sent = await send_template_message(
-        update.message, context, "balance", user_id,
-        admin_note=admin_note,
-        balance=balance,
-        balance_usd=balance_usd
+    text = (
+        "💰 <b>Your Balance</b>\n\n"
+        f"⭐ Stars: <b>{int(balance)}</b> ⭐\n"
+        f"💵 USD: <b>${usd_value:.2f}</b>"
     )
     
-    if template_sent:
-        register_menu_owner(template_sent, user_id)
-        return
-    
-    # Fallback to default message
-    keyboard = [
-        [
-            InlineKeyboardButton(t("deposit_button"), url=f"https://t.me/{bot_username}?start=deposit"),
-            InlineKeyboardButton(t("withdraw_button"), url=f"https://t.me/{bot_username}?start=withdraw"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    balance_text = t("your_balance", admin_note=admin_note, balance=balance, balance_usd=balance_usd)
-    sent = await send_bot_reply_html(
-        update.message, balance_text, message_key="balance",
-        reply_markup=reply_markup, chat_id=update.effective_chat.id
-    )
-    register_menu_owner(sent, user_id)
+    await update.message.reply_html(text)
 
 
 @handle_errors
@@ -4715,10 +4685,9 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("250 ⭐", callback_data="deposit_250"),
             InlineKeyboardButton("500 ⭐", callback_data="deposit_500"),
-        ],
-        [
-            InlineKeyboardButton(t("custom_amount_button", user_id=user_id), callback_data="deposit_custom"),
-        ],
+        ],                [
+                    InlineKeyboardButton(t("custom_amount_button", user_id=user_id), callback_data="deposit_custom"),
+                ],
         [
             InlineKeyboardButton(t("crypto_deposit_button", user_id=user_id), callback_data="crypto_deposit"),
         ]
@@ -4731,66 +4700,6 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     register_menu_owner(sent, update.effective_user.id)
 
 
-@handle_errors
-async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    # If command is used in group, show message with redirect button
-    if update.effective_chat.type != "private":
-        # Get bot username for URL button
-        try:
-            bot_info = await context.bot.get_me()
-            bot_username = bot_info.username if bot_info.username else "Iibratebot"
-        except Exception:
-            bot_username = "Iibratebot"  # Fallback
-        
-        keyboard = [
-            [
-                InlineKeyboardButton(t("btn_withdraw", user_id=user_id), url=f"https://t.me/{bot_username}?start=withdraw")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_html(
-            t("please_use_private"),
-            reply_markup=reply_markup
-        )
-        return
-    
-    context.user_data['withdraw_state'] = None
-    context.user_data['withdraw_amount'] = None
-    context.user_data['withdraw_address'] = None
-    context.user_data['withdraw_type'] = None  # 'stars' or 'crypto'
-    
-    welcome_text = t("welcome_withdraw", min_withdrawal=MIN_WITHDRAWAL)
-    
-    keyboard = [
-        [
-            InlineKeyboardButton(t("withdraw_stars_button", user_id=user_id), callback_data="withdraw_stars"),
-            InlineKeyboardButton(t("withdraw_crypto_button", user_id=user_id), callback_data="withdraw_crypto"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Send with video if set, otherwise just text
-    sent = None
-    if withdraw_video_file_id:
-        try:
-            sent = await update.message.reply_video(
-                video=withdraw_video_file_id,
-                caption=welcome_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Failed to send withdraw video: {e}")
-            # Fallback to text if video fails
-            sent = await update.message.reply_html(welcome_text, reply_markup=reply_markup)
-    else:
-        sent = await update.message.reply_html(welcome_text, reply_markup=reply_markup)
-    
-    if sent:
-        register_menu_owner(sent, user_id)
 
 
 def create_mines_grid_keyboard(game: MinesGame):
@@ -5756,6 +5665,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
+    if data.startswith("deposit_"):
+        if data == "deposit_custom":
+            await query.answer()
+            await query.message.reply_html(
+                "💬 To deposit a custom amount, use the command:\n<code>/deposit [amount]</code>"
+            )
+            return
+            
+        try:
+            amount = int(data.split("_")[1])
+            await send_invoice(query, amount)
+        except ValueError:
+            await query.answer("Invalid deposit amount.", show_alert=True)
+        return
+
     # Coinflip Phase 1 callbacks
     if data == "cf_toggle_curr":
         use_stars = context.user_data.get('cf_use_stars', False)
@@ -6492,12 +6416,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("250 ⭐", callback_data="deposit_250"),
                     InlineKeyboardButton("500 ⭐", callback_data="deposit_500"),
-                ],
-                [
+                ],                [
                     InlineKeyboardButton(t("custom_amount_button", user_id=user_id), callback_data="deposit_custom"),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_deposit_button", user_id=user_id), callback_data="crypto_deposit"),
                 ],
                 [
                     InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="back_to_balance"),
@@ -7061,678 +6981,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             register_menu_owner(sent_pg, user_id)
             return
-        
-        if data == "withdraw_stars":
-            context.user_data['withdraw_state'] = 'waiting_amount'
-            context.user_data['withdraw_type'] = 'stars'
-            
-            # Try to edit caption if it's a video message, otherwise edit text
-            try:
-                await query.edit_message_caption(
-                    caption=f"💫 <b>Enter the number of ⭐ to withdraw:</b>\n\n"
-                            f"Minimum: {MIN_WITHDRAWAL} ⭐\n"
-                            f"Example: 100",
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                try:
-                    await query.edit_message_text(
-                        f"💫 <b>Enter the number of ⭐ to withdraw:</b>\n\n"
-                        f"Minimum: {MIN_WITHDRAWAL} ⭐\n"
-                        f"Example: 100",
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to edit message for withdraw: {e}")
-                    try:
-                        await query.answer(t("err_occurred", user_id=user_id), show_alert=True)
-                    except:
-                        pass
-            return
-        
-        if data == "withdraw_crypto":
-            logger.info(f"withdraw_crypto callback received from user {user_id}")
-            context.user_data['withdraw_state'] = 'waiting_amount'
-            context.user_data['withdraw_type'] = 'crypto'
-            
-            min_crypto_usd = 5.0
-            crypto_balance = user_crypto_balances.get(user_id, 0.0)
-            
-            # Try to edit caption if it's a video message, otherwise edit text
-            try:
-                await query.edit_message_caption(
-                    caption=f"💫 <b>Enter the number to withdraw:</b>\n\n"
-                            f"💎 Your Crypto Balance: <b>${crypto_balance:.2f}</b>\n"
-                            f"Minimum: ${min_crypto_usd:.0f}\n"
-                            f"Example: 10",
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"Successfully edited caption for crypto withdraw")
-            except Exception as e1:
-                logger.info(f"Failed to edit caption, trying edit_message_text: {e1}")
-                try:
-                    await query.edit_message_text(
-                        f"💫 <b>Enter the number to withdraw:</b>\n\n"
-                        f"💎 Your Crypto Balance: <b>${crypto_balance:.2f}</b>\n"
-                        f"Minimum: ${min_crypto_usd:.0f}\n"
-                        f"Example: 10",
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info(f"Successfully edited message for crypto withdraw")
-                except Exception as e2:
-                    logger.error(f"Failed to edit message for crypto withdraw: {e2}", exc_info=True)
-                    try:
-                        await query.answer(t("err_occurred", user_id=user_id), show_alert=True)
-                    except:
-                        pass
-            return
-        
-        if data == "confirm_withdraw":
-            global withdrawal_counter
-            
-            withdraw_type = context.user_data.get('withdraw_type', 'stars')
-            crypto_address = context.user_data.get('withdraw_address', '')
-            
-            withdrawal_counter = db.get_withdrawal_counter() + 1
-            db.set_withdrawal_counter(withdrawal_counter)
-            exchange_id = withdrawal_counter
-            transaction_id = generate_transaction_id()
-            now = datetime.now()
-            created_date = now.strftime("%Y-%m-%d %H:%M")
-            hold_until = (now + timedelta(days=14)).strftime("%Y-%m-%d %H:%M")
-            
-            if withdraw_type == 'crypto':
-                # Crypto withdrawal: check crypto balance and deduct
-                amount_usd = context.user_data.get('withdraw_amount_usd', 0)
-                
-                # Check crypto balance
-                crypto_balance = user_crypto_balances.get(user_id, 0.0)
-                if amount_usd > crypto_balance:
-                    await query.edit_message_text(
-                        "❌ <b>Insufficient crypto balance!</b>\n\n"
-                        f"Your crypto balance: ${crypto_balance:.2f}\n"
-                        f"Requested: ${amount_usd:.2f}\n\n"
-                        "Use /withdraw to try again.",
-                        parse_mode=ParseMode.HTML
-                    )
-                    context.user_data['withdraw_state'] = None
-                    return
-                
-                # Deduct from crypto balance (not stars)
-                if not is_admin(user_id):
-                    db.adjust_user_crypto_balance(user_id, -amount_usd)
-                    user_crypto_balances[user_id] = db.get_user_crypto_balance(user_id)
-                
-                # Get coin name (use detected coin or detect from address)
-                coin_name = context.user_data.get('detected_coin') or detect_coin_from_address(crypto_address)
-                
-                # Generate a more realistic TXID based on coin type
-                import secrets
-                if coin_name in ["Ethereum", "USDT"]:
-                    # Ethereum-style TXID (66 chars: 0x + 64 hex)
-                    txid = "0x" + secrets.token_hex(32)
-                elif coin_name == "Bitcoin":
-                    # Bitcoin-style TXID (64 hex chars)
-                    txid = secrets.token_hex(32)
-                elif coin_name == "Litecoin":
-                    # Litecoin-style TXID (64 hex chars)
-                    txid = secrets.token_hex(32)
-                elif coin_name == "Solana":
-                    # Solana-style TXID (base58, 88 chars)
-                    base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-                    txid = ''.join(secrets.choice(base58_chars) for _ in range(88))
-                elif coin_name == "TON":
-                    # TON-style transaction hash
-                    txid = secrets.token_hex(32).upper()
-                else:
-                    # Default: use generated transaction_id
-                    txid = transaction_id
-                
-                withdrawal_data = {
-                    'exchange_id': exchange_id,
-                    'type': 'crypto',
-                    'amount_usd': amount_usd,
-                    'address': crypto_address,
-                    'transaction_id': transaction_id,
-                    'txid': txid,
-                    'coin_name': coin_name,
-                    'created': created_date,
-                    'hold_until': hold_until,
-                    'status': 'on_hold'
-                }
-                user_withdrawals[str(user_id)] = withdrawal_data  # Keep in memory for compatibility
-                
-                # Save to database
-                db.add_withdrawal(
-                    tx_id=str(exchange_id),
-                    user_id=user_id,
-                    stars=0.0,  # Crypto withdrawals don't use stars
-                    ton_amount=None,
-                    status='on_hold',
-                    exchange_id=str(exchange_id),
-                    created=now,
-                    data=withdrawal_data
-                )
-                
-                # Send professional confirmation message
-                final_message = (
-                    f"🚀 <b>Withdrawal Sent Successfully!</b>\n\n"
-                    f"Your funds are now being processed on the <b>{coin_name}</b> blockchain.\n\n"
-                    f"📊 <b>Transaction Details:</b>\n"
-                    f"💎 Amount: <b>${amount_usd:.2f}</b>\n"
-                    f"🧾 TXID: <code>{txid}</code>\n"
-                    f"⏳ Expected confirmation: <b>5 minutes</b>\n\n"
-                    f"✅ Once the transaction is confirmed on the blockchain, the balance will reflect in your wallet.\n\n"
-                    f"💡 <i>You can track your transaction using the TXID above.</i>"
-                )
-                
-                await query.edit_message_text(
-                    final_message,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                # Stars withdrawal: check balance and deduct
-                stars_amount = context.user_data.get('withdraw_amount', 0)
-                ton_address = crypto_address
-                
-                balance = get_user_balance(user_id)
-                if balance < stars_amount:
-                    await query.edit_message_text(
-                        "❌ <b>Insufficient balance!</b>\n\n"
-                        f"Your balance: {balance} ⭐\n"
-                        f"Requested: {stars_amount} ⭐\n\n"
-                        "Use /withdraw to try again.",
-                        parse_mode=ParseMode.HTML
-                    )
-                    context.user_data['withdraw_state'] = None
-                    return
-                
-                if not is_admin(user_id):
-                    adjust_user_balance(user_id, -stars_amount)
-                    user_balances[user_id] = get_user_balance(user_id)  # Sync memory cache
-                
-                ton_amount = round(stars_amount * STARS_TO_TON, 8)
-                
-                user_withdrawals[str(user_id)] = {
-                    'exchange_id': exchange_id,
-                    'type': 'stars',
-                    'stars': stars_amount,
-                    'ton_amount': ton_amount,
-                    'address': ton_address,
-                    'transaction_id': transaction_id,
-                    'created': created_date,
-                    'hold_until': hold_until,
-                    'status': 'on_hold'
-                }
-                
-                save_data()
-                
-                receipt_text = (
-                    f"📄 <b>Stars withdraw exchange #{exchange_id}</b>\n\n"
-                    f"📊 Exchange status: Processing\n"
-                    f"⭐ Stars withdrawal: {stars_amount}\n"
-                    f"💎 TON amount: {ton_amount}\n\n"
-                    f"<b>Sale:</b>\n"
-                    f"🎯 Top-up status: Paid\n"
-                    f"🏅 Created: {created_date}\n"
-                    f"🏦 TON address: <code>{ton_address}</code>\n"
-                    f"🧾 Transaction ID: <code>{transaction_id}</code>\n\n"
-                    f"💸 Withdrawal status: On hold\n"
-                    f"💎 TON amount: {ton_amount}\n"
-                    f"🏅 Withdrawal created: {created_date}\n"
-                    f"⏳ On hold until: {hold_until}\n"
-                    f"📍 Reason: {bot_identity.get('name', 'Iibrate')} game rating is negative. Placed on 14-day hold."
-                )
-                
-                # Send receipt message for stars withdrawal
-                await query.edit_message_text(
-                    receipt_text,
-                    parse_mode=ParseMode.HTML
-                )
-            
-            context.user_data['withdraw_state'] = None
-            context.user_data['withdraw_amount'] = None
-            context.user_data['withdraw_amount_usd'] = None
-            context.user_data['withdraw_address'] = None
-            context.user_data['withdraw_type'] = None
-            return
-        
-        if data == "cancel_withdraw":
-            context.user_data['withdraw_state'] = None
-            context.user_data['withdraw_amount'] = None
-            context.user_data['withdraw_amount_usd'] = None
-            context.user_data['withdraw_address'] = None
-            context.user_data['withdraw_type'] = None
-            await query.edit_message_text(
-                "❌ <b>Withdrawal cancelled.</b>\n\n"
-                "Use /withdraw to start again.",
-                parse_mode=ParseMode.HTML
-            )
-            return
-        
-        if data.startswith("deposit_"):
-            if data == "deposit_custom":
-                await query.edit_message_text(
-                    "💳 <b>Custom Deposit</b>\n\n"
-                    "Please send the amount you want to deposit.\n\n"
-                    "Example: Just type <code>150</code>\n\n"
-                    "Minimum: 1 ⭐\n"
-                    "Maximum: 10000 ⭐",
-                    parse_mode=ParseMode.HTML
-                )
-                context.user_data['waiting_for_custom_amount'] = True
-                return
-            
-            amount = int(data.split("_")[1])
-            await send_invoice(query, amount)
-            return
-        
-        # Crypto deposit handlers
-        if data == "crypto_deposit":
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        "💎 OxaPay Invoice (BTC/ETH/USDT/LTC/DOGE)",
-                        callback_data="oxapay_deposit"
-                    ),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_litecoin", user_id=user_id), callback_data="crypto_litecoin"),
-                    InlineKeyboardButton(t("crypto_bitcoin", user_id=user_id), callback_data="crypto_bitcoin"),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_ethereum", user_id=user_id), callback_data="crypto_ethereum"),
-                    InlineKeyboardButton(t("crypto_solana", user_id=user_id), callback_data="crypto_solana"),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_ton", user_id=user_id), callback_data="crypto_ton"),
-                    InlineKeyboardButton(t("crypto_usdt_bep20", user_id=user_id), callback_data="crypto_usdt_bep20"),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_usdc_erc20", user_id=user_id), callback_data="crypto_usdc_erc20"),
-                    InlineKeyboardButton(t("crypto_monero", user_id=user_id), callback_data="crypto_monero"),
-                ],
-                [
-                    InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="back_to_deposit"),
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "💎 <b>Select Cryptocurrency</b>\n\n"
-                "Choose a cryptocurrency to deposit:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-            return
-        
-        if data == "back_to_deposit":
-            keyboard = [
-                [
-                    InlineKeyboardButton("10 ⭐", callback_data="deposit_10"),
-                    InlineKeyboardButton("25 ⭐", callback_data="deposit_25"),
-                ],
-                [
-                    InlineKeyboardButton("50 ⭐", callback_data="deposit_50"),
-                    InlineKeyboardButton("100 ⭐", callback_data="deposit_100"),
-                ],
-                [
-                    InlineKeyboardButton("250 ⭐", callback_data="deposit_250"),
-                    InlineKeyboardButton("500 ⭐", callback_data="deposit_500"),
-                ],
-                [
-                    InlineKeyboardButton(t("custom_amount_button", user_id=user_id), callback_data="deposit_custom"),
-                ],
-                [
-                    InlineKeyboardButton(t("crypto_deposit_button", user_id=user_id), callback_data="crypto_deposit"),
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                t("select_deposit", user_id=user_id),
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-            return
-        
-        if data.startswith("crypto_"):
-            coin_key = data.replace("crypto_", "")
-            coin_info = {
-                "litecoin": {"name": "Litecoin", "short": "LTC", "emoji": "💳", "network": ""},
-                "bitcoin": {"name": "Bitcoin", "short": "BTC", "emoji": "💳", "network": ""},
-                "ethereum": {"name": "Ethereum", "short": "ETH", "emoji": "💳", "network": "ERC-20"},
-                "solana": {"name": "Solana", "short": "SOL", "emoji": "💳", "network": ""},
-                "ton": {"name": "TON", "short": "TON", "emoji": "💳", "network": ""},
-                "usdt_bep20": {"name": "USDT", "short": "USDT", "emoji": "💳", "network": "BEP-20"},
-                "usdc_erc20": {"name": "USDC", "short": "USDC", "emoji": "💳", "network": "ERC-20"},
-                "monero": {"name": "Monero", "short": "XMR", "emoji": "💳", "network": ""},
-            }
-            
-            if coin_key not in coin_info:
-                await query.answer(t("err_invalid_coin", user_id=user_id), show_alert=True)
-                return
-            
-            coin_data = coin_info[coin_key]
-            coin_name = coin_data["name"]
-            coin_short = coin_data["short"]
-            coin_emoji = coin_data["emoji"]
-            network = coin_data["network"]
-            
-            # Get base address from crypto_addresses
-            if coin_key not in crypto_addresses or not crypto_addresses[coin_key].get("address"):
-                await query.answer(t("err_addr_not_set", user_id=user_id), show_alert=True)
-                return
-            
-            address_data = crypto_addresses[coin_key]
-            address = address_data.get("address", "")
-            address_network = address_data.get("network", network)
-            
-            # Check if in private chat (DM) - use new format with timer
-            if query.message.chat.type == "private":
-                # DM: Use temporary address with timer and refresh
-                base_address = address
-                temp_address, expires_at = get_or_create_temp_address(user_id, coin_key, base_address)
-                timer_text = format_timer(expires_at)
-                
-                # Format message with timer
-                message = f"{coin_emoji} <b>{coin_name} deposit</b>\n"
-                message += f"To top up your balance, transfer the desired amount to this {coin_short} address.\n\n"
-                message += f"<b>Please note:</b>\n"
-                message += f"1. The deposit address is temporary and is only issued for 1 hour. A new one will be created after that.\n"
-                message += f"2. One address accepts only one payment.\n\n"
-                message += f"<b>{coin_short} address:</b>\n<code>{temp_address}</code>\n\n"
-                message += f"<b>Expires in:</b> {timer_text}"
-                
-                keyboard = [
-                    [
-                        InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="crypto_deposit"),
-                        InlineKeyboardButton(t("refresh_button", user_id=user_id), callback_data=f"crypto_refresh_{coin_key}"),
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-            else:
-                # Group: Use old format (simple address, no timer)
-                message = f"{coin_emoji} <b>{coin_name} deposit</b>\n\n"
-                message += f"To top up your balance, transfer the desired amount to this {coin_name} address.\n\n"
-                message += f"<b>{coin_name} address:</b>\n<code>{address}</code>\n\n"
-                
-                if address_network:
-                    message += f"<b>Network:</b> {address_network}\n"
-                
-                message += f"<b>Network fee:</b> 1%"
-                
-                keyboard = [
-                    [
-                        InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="crypto_deposit"),
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-            return
-        
-        # Handle refresh button (DM only)
-        if data.startswith("crypto_refresh_"):
-            coin_key = data.replace("crypto_refresh_", "")
-            
-            # Check if in private chat (DM) - refresh only works in DM
-            if query.message.chat.type != "private":
-                await query.answer(t("err_refresh_dm_only", user_id=user_id), show_alert=True)
-                return
-            
-            coin_info = {
-                "litecoin": {"name": "Litecoin", "short": "LTC", "emoji": "💳", "network": ""},
-                "bitcoin": {"name": "Bitcoin", "short": "BTC", "emoji": "💳", "network": ""},
-                "ethereum": {"name": "Ethereum", "short": "ETH", "emoji": "💳", "network": "ERC-20"},
-                "solana": {"name": "Solana", "short": "SOL", "emoji": "💳", "network": ""},
-                "ton": {"name": "TON", "short": "TON", "emoji": "💳", "network": ""},
-                "usdt_bep20": {"name": "USDT", "short": "USDT", "emoji": "💳", "network": "BEP-20"},
-                "usdc_erc20": {"name": "USDC", "short": "USDC", "emoji": "💳", "network": "ERC-20"},
-                "monero": {"name": "Monero", "short": "XMR", "emoji": "💳", "network": ""},
-            }
-            
-            if coin_key not in coin_info:
-                await query.answer(t("err_invalid_coin", user_id=user_id), show_alert=True)
-                return
-            
-            # Get base address
-            if coin_key not in crypto_addresses or not crypto_addresses[coin_key].get("address"):
-                await query.answer(t("err_addr_not_set", user_id=user_id), show_alert=True)
-                return
-            
-            base_address = crypto_addresses[coin_key].get("address", "")
-            
-            # Delete old temp address and create new one
-            key = (user_id, coin_key)
-            if key in user_temp_crypto_addresses:
-                del user_temp_crypto_addresses[key]
-            
-            # Create new temp address
-            temp_address, expires_at = get_or_create_temp_address(user_id, coin_key, base_address)
-            timer_text = format_timer(expires_at)
-            
-            coin_data = coin_info[coin_key]
-            coin_name = coin_data["name"]
-            coin_short = coin_data["short"]
-            coin_emoji = coin_data["emoji"]
-            
-            # Format message
-            message = f"{coin_emoji} <b>{coin_name} deposit</b>\n"
-            message += f"To top up your balance, transfer the desired amount to this {coin_short} address.\n\n"
-            message += f"<b>Please note:</b>\n"
-            message += f"1. The deposit address is temporary and is only issued for 1 hour. A new one will be created after that.\n"
-            message += f"2. One address accepts only one payment.\n\n"
-            message += f"<b>{coin_short} address:</b>\n<code>{temp_address}</code>\n\n"
-            message += f"<b>Expires in:</b> {timer_text}"
-            
-            keyboard = [
-                [
-                    InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="crypto_deposit"),
-                    InlineKeyboardButton(t("refresh_button", user_id=user_id), callback_data=f"crypto_refresh_{coin_key}"),
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-            await query.answer(t("alert_addr_refreshed", user_id=user_id))
-            return
-
-        # ── OxaPay Invoice Deposit ────────────────────────────────────────────
-
-        if data == "oxapay_deposit":
-            keyboard = [
-                [InlineKeyboardButton(t("oxapay_usdt", user_id=user_id), callback_data="oxapay_cur_USDT")],
-                [
-                    InlineKeyboardButton(t("oxapay_btc", user_id=user_id),  callback_data="oxapay_cur_BTC"),
-                    InlineKeyboardButton(t("oxapay_eth", user_id=user_id),  callback_data="oxapay_cur_ETH"),
-                ],
-                [
-                    InlineKeyboardButton(t("oxapay_ltc", user_id=user_id),   callback_data="oxapay_cur_LTC"),
-                    InlineKeyboardButton(t("oxapay_doge", user_id=user_id), callback_data="oxapay_cur_DOGE"),
-                ],
-                [InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="crypto_deposit")],
-            ]
-            await query.edit_message_text(
-                "💎 <b>OxaPay Crypto Deposit</b>\n\n"
-                "Select the cryptocurrency you want to deposit.\n"
-                "An invoice with a unique payment address will be generated for you.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-            return
-
-        if data.startswith("oxapay_cur_"):
-            currency = data[len("oxapay_cur_"):]
-            cur_info = oxapay.SUPPORTED_CURRENCIES.get(currency)
-            if not cur_info:
-                await query.answer(t("err_unsupported_currency", user_id=user_id), show_alert=True)
-                return
-            keyboard = [
-                [
-                    InlineKeyboardButton("$5",   callback_data=f"oxapay_inv_{currency}_5"),
-                    InlineKeyboardButton("$10",  callback_data=f"oxapay_inv_{currency}_10"),
-                    InlineKeyboardButton("$25",  callback_data=f"oxapay_inv_{currency}_25"),
-                ],
-                [
-                    InlineKeyboardButton("$50",  callback_data=f"oxapay_inv_{currency}_50"),
-                    InlineKeyboardButton("$100", callback_data=f"oxapay_inv_{currency}_100"),
-                ],
-                [InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="oxapay_deposit")],
-            ]
-            await query.edit_message_text(
-                f"💎 <b>OxaPay — {cur_info['emoji']} {cur_info['name']} Deposit</b>\n\n"
-                f"Network: <b>{cur_info['network']}</b>\n\n"
-                f"Select the amount in USD to deposit:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-            return
-
-        if data.startswith("oxapay_inv_"):
-            # Callback format: oxapay_inv_{CURRENCY}_{USD_AMOUNT}
-            # e.g. oxapay_inv_USDT_25 or oxapay_inv_BTC_10
-            parts = data.split("_", 3)   # ['oxapay', 'inv', 'CURRENCY', 'AMOUNT']
-            if len(parts) < 4:
-                await query.answer(t("err_invalid_selection", user_id=user_id), show_alert=True)
-                return
-            currency = parts[2]
-            try:
-                usd_amount = float(parts[3])
-            except ValueError:
-                await query.answer(t("err_invalid_amount_alert", user_id=user_id), show_alert=True)
-                return
-
-            cur_info = oxapay.SUPPORTED_CURRENCIES.get(currency)
-            if not cur_info:
-                await query.answer(t("err_unsupported_currency", user_id=user_id), show_alert=True)
-                return
-
-            await query.answer(t("alert_generating_invoice", user_id=user_id))
-            await query.edit_message_text(
-                "⏳ <b>Creating your deposit invoice…</b>\n\nPlease wait a moment.",
-                parse_mode=ParseMode.HTML,
-            )
-
-            # Convert USD amount to the target crypto amount
-            crypto_amount = await oxapay.get_crypto_amount_for_usd(usd_amount, currency)
-            if crypto_amount is None:
-                logger.error(
-                    f"OxaPay: could not resolve crypto amount for "
-                    f"${usd_amount} in {currency} (user {user_id})"
-                )
-                await query.edit_message_text(
-                    "❌ <b>Could not fetch exchange rate.</b>\n\n"
-                    "Please try again in a moment or choose a different currency.",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="oxapay_deposit")]]
-                    ),
-                )
-                return
-
-            # Create the OxaPay invoice
-            response = await oxapay.create_invoice(
-                amount=crypto_amount,
-                currency=currency,
-                user_id=user_id,
-            )
-
-            if response is None or response.get("result") != 100:
-                result_code = response.get("result") if response else "N/A"
-                result_msg  = response.get("message", "") if response else ""
-                logger.error(
-                    f"OxaPay invoice creation failed for user {user_id}: "
-                    f"result={result_code} msg={result_msg}"
-                )
-                await query.edit_message_text(
-                    "❌ <b>Failed to create deposit invoice.</b>\n\n"
-                    "Please try again later or contact support.",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(t("back_button", user_id=user_id), callback_data="oxapay_deposit")]]
-                    ),
-                )
-                return
-
-            track_id     = response.get("trackId", "")
-            pay_link     = response.get("payLink", "")
-            inv_amount   = response.get("amount", crypto_amount)
-            inv_currency = currency  # creation response doesn't echo currency; use what we sent
-
-            # Try to get the static deposit address for this currency so we can
-            # display it directly in the bot.  Falls back gracefully if unavailable.
-            cur_info        = oxapay.SUPPORTED_CURRENCIES.get(currency, {})
-            network_str     = cur_info.get("network", "")
-            static_resp     = await oxapay.request_static_address(inv_currency, network_str)
-            deposit_address = ""
-            if static_resp and static_resp.get("result") == 100:
-                deposit_address = static_resp.get("address", "")
-
-            # Persist to DB
-            db.create_deposit(
-                user_id=user_id,
-                track_id=track_id,
-                address=deposit_address or pay_link,
-                currency=inv_currency,
-                amount_usd=usd_amount,
-            )
-            logger.info(
-                f"[DEPOSIT] Invoice saved: user={user_id} trackId={track_id} "
-                f"currency={inv_currency} crypto_amount={inv_amount} usd=${usd_amount} "
-                f"address={'YES' if deposit_address else 'NO (payLink fallback)'}"
-            )
-
-            stars_estimate = int(usd_amount / STARS_TO_USD)
-
-            if deposit_address:
-                network_label = f" ({network_str})" if network_str else ""
-                deposit_msg = (
-                    f"💳 <b>OxaPay Deposit Invoice</b>\n\n"
-                    f"💰 Amount: <b>{inv_amount} {inv_currency}</b>  (≈ ${usd_amount:.2f})\n"
-                    f"⭐ You will receive: <b>~{stars_estimate:,} Stars</b>\n\n"
-                    f"📋 <b>Send exactly {inv_amount} {inv_currency}{network_label} to:</b>\n"
-                    f"<code>{deposit_address}</code>\n\n"
-                    f"🔖 Track ID: <code>{track_id}</code>\n"
-                    f"⏰ Expires in: <b>30 minutes</b>\n\n"
-                    f"✅ Your balance will be credited automatically once confirmed.\n"
-                    f"⚠️ Send <b>only {inv_currency}</b> to this address — "
-                    f"other coins will be lost."
-                )
-                keyboard = [
-                    [InlineKeyboardButton(t("btn_open_payment", user_id=user_id), url=pay_link)],
-                    [InlineKeyboardButton(t("crypto_deposit_button", user_id=user_id), callback_data="oxapay_deposit")],
-                ]
-            else:
-                # Static address unavailable — fall back to payment link only
-                deposit_msg = (
-                    f"💳 <b>OxaPay Deposit Invoice</b>\n\n"
-                    f"💰 Amount: <b>{inv_amount} {inv_currency}</b>  (≈ ${usd_amount:.2f})\n"
-                    f"⭐ You will receive: <b>~{stars_estimate:,} Stars</b>\n\n"
-                    f"👇 <b>Tap <u>Pay Now</u> to see your deposit address and QR code</b>\n\n"
-                    f"🔖 Track ID: <code>{track_id}</code>\n"
-                    f"⏰ Expires in: <b>30 minutes</b>\n\n"
-                    f"✅ Your balance will be credited automatically once confirmed."
-                )
-                keyboard = [
-                    [InlineKeyboardButton(t("btn_pay_now", user_id=user_id), url=pay_link)],
-                    [InlineKeyboardButton(t("crypto_deposit_button", user_id=user_id), callback_data="oxapay_deposit")],
-                ]
-
-            await query.edit_message_text(
-                deposit_msg,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-            return
-
-        # ── End OxaPay ────────────────────────────────────────────────────────
 
         if data.startswith("demo_game_"):
             if not is_admin(user_id):
@@ -10536,7 +9784,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not context.user_data.get('steal_state') and not context.user_data.get('waiting_for_bankroll') and not context.user_data.get('waiting_for_min_withdrawal'):
             return  # Silently ignore banned users
     
-    text = (update.message.text or "").strip()
+    message = update.message or update.edited_message
+    if not message:
+        return
+    text = (message.text or "").strip()
     
     # Handle emoji replacement flow (admin only) — must be checked before other handlers
     if user_id in emoji_replace_flow:
@@ -10589,7 +9840,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "waiting_for_message": True
             }
             return
-        
         # If waiting for message template (single step)
         if setup_state.get("waiting_for_message"):
             command_name = setup_state.get("current_command")
@@ -10697,7 +9947,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return
             global MIN_WITHDRAWAL
             MIN_WITHDRAWAL = amount
-            db.set_min_withdrawal(amount)
             context.user_data['waiting_for_min_withdrawal'] = False
             await update.message.reply_html(
                 f"✅ <b>Minimum withdrawal updated!</b>\n\n"
@@ -10730,64 +9979,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         await perform_broadcast(update, context, update.message)
         broadcast_waiting.discard(user_id)
-        return
-    
-    # Handle admin setting crypto addresses
-    if user_id in admin_setting_crypto and update.effective_chat.type == "private":
-        if not is_admin(user_id):
-            admin_setting_crypto.pop(user_id, None)
-            return
-        
-        coin_name = admin_setting_crypto[user_id]
-        address = text.strip()
-        
-        if not address:
-            await update.message.reply_html(t("send_valid_address", user_id=user_id))
-            return
-        
-        # Determine network based on coin
-        network_map = {
-            "litecoin": "",
-            "bitcoin": "",
-            "ethereum": "ERC-20",
-            "solana": "",
-            "ton": "",
-            "usdt_bep20": "BEP-20",
-            "usdc_erc20": "ERC-20",
-            "monero": ""
-        }
-        
-        network = network_map.get(coin_name, "")
-        
-        # Save address
-        crypto_addresses[coin_name] = {
-            "address": address,
-            "network": network
-        }
-        db.replace_crypto_addresses(dict(crypto_addresses))
-        save_data()
-        
-        coin_display = {
-            "litecoin": "Litecoin",
-            "bitcoin": "Bitcoin",
-            "ethereum": "Ethereum",
-            "solana": "Solana",
-            "ton": "TON",
-            "usdt_bep20": "USDT BEP-20",
-            "usdc_erc20": "USDC ERC-20",
-            "monero": "Monero"
-        }
-        
-        admin_setting_crypto.pop(user_id, None)
-        
-        network_text = f"\n<b>Network:</b> {network}" if network else ""
-        
-        await update.message.reply_html(
-            f"✅ <b>Address saved successfully!</b>\n\n"
-            f"💰 <b>Coin:</b> {coin_display[coin_name]}\n"
-            f"📍 <b>Address:</b> <code>{address}</code>{network_text}"
-        )
-        logger.info(f"Admin {user_id} set {coin_name} address: {address}")
         return
     
     # Handle mines bet amount input
@@ -11110,47 +10301,9 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
-@handle_errors
-async def wd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set minimum withdrawal amount (admin only)"""
-    if not update.message:
-        return
-    
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_html(translate_text("❌ <b>You don't have permission to use this command.</b>", user_id=user_id))
-        return
-    
-    # Check if admin provided amount directly
-    if context.args and len(context.args) >= 1:
-        try:
-            amount = int(context.args[0])
-            if amount < 1:
-                await update.message.reply_html(translate_text("❌ Minimum withdrawal must be at least 1 ⭐", user_id=user_id))
-                return
-            
-            global MIN_WITHDRAWAL
-            MIN_WITHDRAWAL = amount
-            save_data()
-            await update.message.reply_html(
-                f"✅ <b>Minimum withdrawal updated!</b>\n\n"
-                f"💰 New minimum: <b>{MIN_WITHDRAWAL} ⭐</b>"
-            )
-            logger.info(f"Admin {user_id} set minimum withdrawal to {MIN_WITHDRAWAL}")
-            return
-        except ValueError:
-            await update.message.reply_html(translate_text("❌ Please enter a valid integer number.", user_id=user_id))
-            return
-    
-    # Prompt admin for amount
-    context.user_data['waiting_for_min_withdrawal'] = True
-    await update.message.reply_html(
-        "💰 <b>Set Minimum Withdrawal</b>\n\n"
-        f"Current minimum: <b>{MIN_WITHDRAWAL} ⭐</b>\n\n"
-        "Send the new minimum withdrawal amount in stars (integer only).\n"
-        "Example: 200"
-    )
+
+
+
 
 
 # Gift system configuration
@@ -11859,63 +11012,9 @@ async def bankroll_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @handle_errors
-async def set_crypto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command to set crypto addresses"""
-    if not update.message:
-        return
-    
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_html(translate_text("❌ <b>You don't have permission to use this command.</b>", user_id=user_id))
-        return
-    
-    if not context.args or len(context.args) == 0:
-        await update.message.reply_html(
-            "â¹ï¸  <b>Set Crypto Address</b>\n\n"
-            "Usage: /set <coin_name>\n\n"
-            "Available coins:\n"
-            "• litecoin\n"
-            "• bitcoin\n"
-            "• ethereum\n"
-            "• solana\n"
-            "• ton\n"
-            "• usdt_bep20\n"
-            "• usdc_erc20\n"
-            "• monero\n\n"
-            "Example: /set ethereum\n\n"
-            "After sending this command, send the address in the next message."
-        )
-        return
-    
-    coin_name = context.args[0].lower()
-    valid_coins = ["litecoin", "bitcoin", "ethereum", "solana", "ton", "usdt_bep20", "usdc_erc20", "monero"]
-    
-    if coin_name not in valid_coins:
-        await update.message.reply_html(
-            "❌ <b>Invalid coin name!</b>\n\n"
-            "Valid coins: litecoin, bitcoin, ethereum, solana, ton, usdt_bep20, usdc_erc20, monero"
-        )
-        return
-    
-    # Set waiting state for admin to send address
-    admin_setting_crypto[user_id] = coin_name
-    
-    coin_display = {
-        "litecoin": "Litecoin",
-        "bitcoin": "Bitcoin",
-        "ethereum": "Ethereum",
-        "solana": "Solana",
-        "ton": "TON",
-        "usdt_bep20": "USDT BEP-20",
-        "usdc_erc20": "USDC ERC-20",
-        "monero": "Monero"
-    }
-    
-    await update.message.reply_html(
-        f"✅ <b>Setting address for {coin_display[coin_name]}</b>\n\n"
-        f"Please send the {coin_display[coin_name]} address now."
-    )
+
+
+
 
 
 async def perform_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE, source_message):
@@ -12338,6 +11437,13 @@ async def bankroll_hourly_fluctuation(context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[BANKROLL] Hourly fluctuation — bankroll now ${casino_bankroll_usd:,.2f}")
 
 
+async def update_ton_price_job(context: ContextTypes.DEFAULT_TYPE):
+    global STARS_TO_USD
+    ton_price = await get_ton_price_usd()
+    if ton_price:
+        STARS_TO_USD = ton_price / 200
+
+@handle_errors
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Unhandled exception: {context.error}", exc_info=context.error)
     
@@ -12353,97 +11459,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in error handler: {e}")
 
 
-async def poll_pending_deposits(context: ContextTypes.DEFAULT_TYPE):
-    """
-    Job that runs every 30 seconds.
-    Checks every pending OxaPay deposit and credits the user's balance
-    when OxaPay reports the invoice as Paid.
-    One bad record cannot kill the job — every deposit is wrapped in try/except.
-    """
-    try:
-        pending = db.get_pending_deposits()
-        if not pending:
-            return
-        logger.info(f"[POLL] Checking {len(pending)} pending deposit(s)…")
 
-        for deposit in pending:
-            track_id   = deposit["track_id"]
-            user_id    = deposit["user_id"]
-            amount_usd = deposit.get("amount_usd") or 0.0
-            currency   = deposit.get("currency", "USDT")
-
-            try:
-                result = await oxapay.check_invoice(track_id)
-                if result is None:
-                    continue
-
-                status = result.get("status", "").lower()
-
-                if status == "paid":
-                    # Double-credit guard
-                    if db.deposit_already_credited(track_id):
-                        logger.info(f"[POLL] Deposit {track_id} already credited — skipping")
-                        continue
-
-                    raw_pay = result.get("payAmount", "") or "0"
-                    pay_amount = float(raw_pay) if str(raw_pay).strip() else 0.0
-
-                    # Mark as paid in DB first (prevent race conditions)
-                    db.mark_deposit_paid(track_id, pay_amount)
-
-                    # Determine base stars to credit
-                    if amount_usd > 0:
-                        base_stars = int(amount_usd / STARS_TO_USD)
-                    else:
-                        base_stars = int(pay_amount / STARS_TO_USD)
-
-                    # Apply deposit bonus multiplier (double/triple deposit event)
-                    effective_mult = deposit_bonus_mult if deposit_bonus_mult > 1 else 1
-                    stars_to_credit = base_stars * effective_mult
-
-                    # Credit balance directly (bypass admin-skip guard)
-                    db.adjust_user_balance(user_id, stars_to_credit)
-
-                    bonus_note = ""
-                    if effective_mult > 1:
-                        bonus_note = f"\n🎁 <b>{effective_mult}x Deposit Bonus applied!</b>"
-
-                    logger.info(
-                        f"[POLL] Credited {stars_to_credit:,} ⭐ to user {user_id} "
-                        f"for deposit {track_id} "
-                        f"(payAmount={pay_amount} {currency}, usd=${amount_usd}, mult={effective_mult}x)"
-                    )
-
-                    # Notify the user
-                    try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"✅ <b>Deposit Confirmed!</b>\n\n"
-                                f"💰 Received: <b>{pay_amount} {currency}</b>\n"
-                                f"⭐ Credited: <b>{stars_to_credit:,} Stars</b>"
-                                f"{bonus_note}\n\n"
-                                f"Enjoy your games! 🎰"
-                            ),
-                            parse_mode=ParseMode.HTML,
-                        )
-                    except Exception as notify_err:
-                        logger.warning(
-                            f"[POLL] Could not notify user {user_id}: {notify_err}"
-                        )
-
-                elif status in ("expired", "error"):
-                    # Stop polling this invoice
-                    db.mark_deposit_expired(track_id, status)
-                    logger.info(f"[POLL] Deposit {track_id} marked as {status.lower()}")
-
-            except Exception as e:
-                logger.error(
-                    f"[POLL] Error processing deposit {track_id}: {e}", exc_info=True
-                )
-
-    except Exception as e:
-        logger.error(f"[POLL] Unhandled error in poll_pending_deposits: {e}", exc_info=True)
 
     # ── Jackpot notifications ─────────────────────────────────────────────────
     while _jackpot_notify_queue:
@@ -13122,10 +12138,7 @@ def main():
     
     application.add_error_handler(error_handler)
 
-    # OxaPay deposit polling — checks every 30 s, starts after 10 s
-    application.job_queue.run_repeating(
-        poll_pending_deposits, interval=30, first=10
-    )
+
 
     # Multi-bot sync reload — detects external settings sync every 60 s
     application.job_queue.run_repeating(
@@ -13147,7 +12160,6 @@ def main():
     application.add_handler(CommandHandler("bal", balance_command))  # Alias
     application.add_handler(CommandHandler("deposit", deposit_command))
     application.add_handler(CommandHandler("depo", deposit_command))  # Alias
-    application.add_handler(CommandHandler("withdraw", withdraw_command))
     application.add_handler(CommandHandler("custom", custom_deposit))
     application.add_handler(CommandHandler("play", play_command))
     application.add_handler(CommandHandler("mines", mines_command))
@@ -13161,8 +12173,7 @@ def main():
     application.add_handler(CommandHandler(["referral", "ref"], referral_command))
     application.add_handler(CommandHandler("cancel", cancel_command))
     application.add_handler(CommandHandler(["hb", "housebal"], bankroll_command))
-    application.add_handler(CommandHandler("wd", wd_command))
-    
+        
     # Game commands (new point-based system)
     application.add_handler(CommandHandler("dice", dice_game))
     application.add_handler(CommandHandler("dart", dart_game))
@@ -13207,8 +12218,7 @@ def main():
     application.add_handler(CommandHandler("cg", cg_command))
     application.add_handler(CommandHandler("lang", lang_command))
     application.add_handler(CommandHandler("setlang", setlang_command))  # Admin only - global default
-    application.add_handler(CommandHandler("set", set_crypto_command))
-    
+        
     # Emoji customization (admin only)
     application.add_handler(CommandHandler("emoji", emoji_command))
     application.add_handler(CommandHandler("skip", lambda u, c: handle_emoji_flow_input(u, c)))
@@ -13247,6 +12257,7 @@ def main():
     # Handlers
     # Put broadcast capture in a later group so game handlers run first
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_broadcast_capture, block=False), group=1)
+    setup_deposit_module(application)
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
@@ -13256,6 +12267,11 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
     
     logger.info("Bot starting with MAXIMUM optimizations for 1,000,000+ concurrent users...")
+    
+    job_queue = application.job_queue
+    job_queue.run_repeating(check_sync_reload, interval=60, first=30)
+    job_queue.run_repeating(update_ton_price_job, interval=30, first=0)
+    
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=False,

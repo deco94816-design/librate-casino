@@ -1,60 +1,74 @@
-# -*- coding: utf-8 -*-
-"""Stub OxaPay integration — real API keys not configured; returns safe fallbacks."""
+import aiohttp
+import hmac
+import hashlib
 
-from __future__ import annotations
+class OxaPay:
+    def __init__(self, merchant_key):
+        self.merchant_key = merchant_key
+        self.base_url = "https://api.oxapay.com"
 
-import logging
-from typing import Any
+    async def create_deposit_address(self, coin, network, user_id):
+        url = f"{self.base_url}/merchants/request/whitelabel"
+        payload = {
+            "merchant": self.merchant_key,
+            "amount": 0.10,
+            "currency": "USD",
+            "payCurrency": coin,
+            "network": network,
+            "orderId": str(user_id),
+            "lifeTime": 60,
+            "description": f"Deposit for user {user_id}"
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json()
+                except aiohttp.ContentTypeError:
+                    print(f"OxaPay API Error: Non-JSON response (Status: {resp.status})")
+                    return None
+                
+                if data.get("result") == 100:
+                    return {
+                        "address": data.get("address"),
+                        "network": data.get("network"),
+                        "trackId": str(data.get("trackId"))
+                    }
+                else:
+                    print(f"OxaPay API Error: {data}", flush=True)
+                    return {"error": data.get("message", "API Error")}
 
-logger = logging.getLogger(__name__)
+    @staticmethod
+    def verify_webhook_signature(payload_str, signature, merchant_key):
+        calculated_sig = hmac.new(
+            merchant_key.encode('utf-8'),
+            payload_str.encode('utf-8'),
+            hashlib.sha512
+        ).hexdigest()
+        return hmac.compare_digest(calculated_sig, signature)
 
-# Used by deposit UI: currency -> metadata (network label optional)
-SUPPORTED_CURRENCIES: dict[str, dict[str, str]] = {
-    "USDT": {"network": "TRC20"},
-    "BTC": {"network": "BTC"},
-    "ETH": {"network": "ERC20"},
-    "LTC": {"network": "LTC"},
-    "DOGE": {"network": "DOGE"},
-}
+    async def get_supported_coins(self):
+        url = f"{self.base_url}/api/networks"
+        payload = {"merchant": self.merchant_key}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json()
+                    return data
+                except aiohttp.ContentTypeError:
+                    print(f"OxaPay API Error: Non-JSON response (Status: {resp.status})")
+                    return {}
 
-
-async def get_crypto_amount_for_usd(usd_amount: float, currency: str) -> float:
-    """Placeholder rate: 1 USD worth of crypto (invoice creation may still fail without API)."""
-    _ = currency
-    return round(float(usd_amount), 8)
-
-
-async def create_invoice(
-    *,
-    amount: float,
-    currency: str,
-    life_time: int = 1800,
-    fee_paid_by_payer: int = 1,
-    under_paid: float = 0,
-    auto_withdrawal: int = 0,
-    mixed_payment: int = 0,
-) -> dict[str, Any] | None:
-    """Without OxaPay merchant credentials, invoice creation is unavailable."""
-    _ = (
-        amount,
-        currency,
-        life_time,
-        fee_paid_by_payer,
-        under_paid,
-        auto_withdrawal,
-        mixed_payment,
-    )
-    logger.warning("oxapay.create_invoice: stub — configure OxaPay API for real invoices")
-    return None
-
-
-async def request_static_address(currency: str, network: str) -> dict[str, Any]:
-    """Stub static address request."""
-    _ = currency, network
-    return {"result": 0, "message": "stub"}
-
-
-async def check_invoice(track_id: str) -> dict[str, Any] | None:
-    """Stub: never marks paid."""
-    _ = track_id
-    return None
+    async def inquiry_deposit(self, trackId):
+        url = f"{self.base_url}/merchants/inquiry"
+        payload = {
+            "merchant": self.merchant_key,
+            "trackId": trackId
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                try:
+                    data = await resp.json()
+                    return data
+                except aiohttp.ContentTypeError:
+                    print(f"OxaPay API Error: Non-JSON response (Status: {resp.status})")
+                    return {}
