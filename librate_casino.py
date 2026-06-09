@@ -22,6 +22,10 @@ from collections import defaultdict
 import asyncio
 import sqlite3
 import io
+
+from storage import db
+from race import init_race, record_wager, race_command, schedule_race_reset
+from race_admin import register_race_admin_handlers
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -1486,6 +1490,10 @@ def get_rank_info(level):
 
 def update_game_stats(user_id, game_type, bet_amount, win_amount, won):
     profile = get_or_create_profile(user_id)
+    
+    # Record wager for race leaderboard
+    display_name = profile.get('username') or "Player"
+    asyncio.create_task(record_wager(user_id, display_name, bet_amount))
     
     # Update profile stats
     profile['total_games'] += 1
@@ -12139,9 +12147,10 @@ def main():
     
     application.add_error_handler(error_handler)
 
-
-
-    # Multi-bot sync reload — detects external settings sync every 60 s
+    # Initialize Race Feature
+    init_race()
+    register_race_admin_handlers(application)
+    schedule_race_reset(application)
     application.job_queue.run_repeating(
         check_sync_reload, interval=60, first=30
     )
@@ -12153,6 +12162,7 @@ def main():
 
     # Basic commands
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("race", race_command))
     application.add_handler(CommandHandler("help", support_command))  # Alias for /support
     application.add_handler(CommandHandler("com", com_command))
     application.add_handler(CommandHandler("cmd", cmd_command))
