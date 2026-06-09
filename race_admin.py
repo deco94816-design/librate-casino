@@ -40,9 +40,12 @@ from race import (
 async def _is_admin(update: Update) -> bool:
     from storage import db
     user_id = update.effective_user.id
-    if db.is_admin(user_id):
+    is_adm = db.is_admin(user_id)
+    if is_adm:
         return True
-    await update.message.reply_text("⛔ Admin only.")
+    await update.message.reply_text(
+        f"⛔ Admin only. DEBUG: your_id={user_id}, is_admin={is_adm}"
+    )
     return False
 
 
