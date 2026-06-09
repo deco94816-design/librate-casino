@@ -1,0 +1,257 @@
+Repo: auto-hyper-bot
+Files: 3 files
+Main file (Main.py) snippet:
+#!/usr/bin/env python3
+"""
+🤖 Enhanced Dual Telegram Userbot System
+Version: 4.0
+Author: Custom Bot
+Enhanced with: Auto-rounds, Smart Reply, Interactive Menu
+"""
+
+import asyncio
+import logging
+import os
+import json
+import random
+from datetime import datetime, timedelta
+from telethon import TelegramClient, events
+from telethon.tl.types import Channel, Chat, User
+from telethon.errors import FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError
+
+# ----------------------------
+# ⚡ Configu
+----------------------------------------
+Repo: auto-sender
+Files: 3 files
+Main file (Main.py) snippet:
+import asyncio
+import logging
+from telethon import TelegramClient
+from telethon.tl.types import Channel, Chat
+from telethon.errors import FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError
+import time
+import random
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+class TelegramUserbot:
+    def __init__(self, api_id, api_hash, phone_number):
+        """
+       
+----------------------------------------
+Repo: battle-bounty-buddy
+Files: 88 files
+Main file (eslint.config.js) snippet:
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist"] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      "react-hooks": rea
+----------------------------------------
+Repo: bot-v2-fixed
+Files: 13 files
+Main file (Autoreply.py) snippet:
+import asyncio
+import json
+import os
+from datetime import datetime
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
+import google.generativeai as genai
+import random
+
+# Configuration
+API_ID = '34724923'  # Get from my.telegram.org
+API_HASH = 'd46f75f6dbb93156f5bd5284b5fef860'  # Get from my.telegram.org
+PHONE = '+447552437615'  # Your phone number with country code
+GEMINI_API_KEY = 'AIzaSyBpYQl_w4VCHGak7X2kgC7CF6apoLWABfM'  # Get from Google AI Studio
+TARGE
+----------------------------------------
+Repo: casino-final
+Files: 2 files
+Main file (Casinov20.py) snippet:
+import logging
+import random
+import string
+import re
+import json
+import os
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+from telegram.constants import ParseMode
+from telegram.error import TelegramError, BadRequest, Forbidden, NetworkError
+from co
+----------------------------------------
+Repo: cyberpunk-terminal-toolkit
+Files: 81 files
+Main file (eslint.config.js) snippet:
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist"] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      "react-hooks": rea
+----------------------------------------
+Repo: free-fire-infoapi
+Files: 12 files
+Main file (app/api/routes.py) snippet:
+from flask import jsonify, request, Blueprint, Response
+import requests
+import binascii
+from datetime import datetime
+import json
+from app.core.jwt_token import get_jwt
+from app.core.encrypt import Encrypt_ID, encrypt_api
+from app.core.parser import get_available_room
+
+
+routes = Blueprint("routes", __name__)
+
+
+@routes.route("/api/player-info", methods=["GET"])
+def get_player_info():
+    try:
+        player_id = request.args.get("id")
+        if not player_id:
+            return jsonify(
+        
+----------------------------------------
+Repo: lola-hyper
+Files: 1 files
+Files list: ['README.md']
+----------------------------------------
+Repo: megatron
+Files: 42 files
+Main file (bot.py) snippet:
+# -*- coding: utf-8 -*-
+import logging
+import random
+import string
+import re
+import json
+import os
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Bot, InputMediaPhoto
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+from telegram.constants import ParseMode
+from telegram.error import TelegramErro
+----------------------------------------
+Repo: mola-hyper
+Files: 4 files
+Main file (Bot.py) snippet:
+#!/usr/bin/env python3
+"""
+🤖 Enhanced Dual Telegram Userbot System
+Version: 4.0
+Author: Custom Bot
+Enhanced with: Auto-rounds, Smart Reply, Interactive Menu
+"""
+
+import asyncio
+import logging
+import os
+import json
+import random
+from datetime import datetime, timedelta
+from telethon import TelegramClient, events
+from telethon.tl.types import Channel, Chat, User
+from telethon.errors import FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError
+
+# ----------------------------
+# ⚡ Configu
+----------------------------------------
+Repo: telegram-bot-base
+Files: 45 files
+Main file (Allok.py) snippet:
+import os
+import re
+import random
+import string
+import json
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.error import BadRequest
+
+# Bot token - replace with your actual bot token
+BOT_TOKEN = "8222109440:AAEUDliYuyGgBcbXzJTuk6zJJKop32ZdM2o"
+
+# File paths for persistence
+ADMINS_FILE = "bot_admins.json"
+DEALS_FILE = "confirmed_deals.json"
+STATS_FILE = "bot_stats.json"
+
+# Store bot admins (chat_id as key)
+bot_ad
+----------------------------------------
+Repo: telegram-casino
+Files: 3 files
+Main file (Useebotv2.py) snippet:
+import logging
+import random
+import string
+import re
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+from telegram.constants import ParseMode
+from collections import defaultdict
+import asyncio
+import os
+
+logging.basicConfig(
+    format='%(asctime)s 
+----------------------------------------
