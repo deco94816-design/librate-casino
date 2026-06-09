@@ -1730,12 +1730,13 @@ def handle_errors(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         # Check if user is banned (allow admins and ban/unban commands)
         user_id = None
-        if update.effective_user:
-            user_id = update.effective_user.id
-        elif update.message and update.message.from_user:
-            user_id = update.message.from_user.id
-        elif update.callback_query and update.callback_query.from_user:
-            user_id = update.callback_query.from_user.id
+        if update:
+            if update.effective_user:
+                user_id = update.effective_user.id
+            elif update.message and update.message.from_user:
+                user_id = update.message.from_user.id
+            elif update.callback_query and update.callback_query.from_user:
+                user_id = update.callback_query.from_user.id
         
         # Allow ban/unban commands to work even if admin is somehow banned
         command_name = func.__name__
@@ -5242,13 +5243,13 @@ async def complete_round(context, chat_id, user_id):
             msg_text = (
                 f"🔹 The game has ended{demo_tag}\n\n"
                 f"👑 Winner: {user_link} - {p_score} points\n"
-                f"👎 Loser: 🤖 Raika Game - {b_score} points\n"
+                f"👎 Loser: 🤖 Librate Game - {b_score} points\n"
                 f"Win + ${earned_usd:.2f}"
             )
         else:
             msg_text = (
                 f"🔹 The game has ended{demo_tag}\n\n"
-                f"👑 Winner: 🤖 Raika Game - {b_score} points\n"
+                f"👑 Winner: 🤖 Librate Game - {b_score} points\n"
                 f"👎 Loser: {user_link} - {p_score} points\n"
                 f"Loss - ${bet_usd:.2f}"
             )
@@ -7248,7 +7249,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"🔹 The game has started\n\n"
                 f"Player 1: {user_link}\n"
-                f"Player 2: 🤖 Raika Game\n"
+                f"Player 2: 🤖 Librate Game\n"
                 f"Bet: ${bet_usd:.2f}\n"
                 f"Mode: {mode_display} - {points_target} points\n\n"
                 f"Roll the dice {config['emoji']}",
@@ -7323,7 +7324,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"🔹 The game has started\n\n"
                 f"Player 1: {user_link}\n"
-                f"Player 2: 🤖 Raika Game\n"
+                f"Player 2: 🤖 Librate Game\n"
                 f"Bet: ${bet_usd:.2f}\n"
                 f"Mode: {mode_display} - {points_target} points\n\n"
                 f"Roll the dice {config['emoji']}",
@@ -7401,7 +7402,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"🔹 The game has started\n\n"
                 f"Player 1: {user_link}\n"
-                f"Player 2: 🤖 Raika Game\n"
+                f"Player 2: 🤖 Librate Game\n"
                 f"Bet: ${bet_usd:.2f}\n"
                 f"Mode: {mode_display} - {points_target} points\n\n"
                 f"Roll the dice {config['emoji']}",
