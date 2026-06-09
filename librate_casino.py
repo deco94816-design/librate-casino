@@ -25,7 +25,6 @@ import io
 
 from storage import db
 from race import init_race, record_wager, race_command, schedule_race_reset
-from race_admin import register_race_admin_handlers
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -12149,6 +12148,7 @@ def main():
 
     # Initialize Race Feature
     init_race()
+    from race_admin import register_race_admin_handlers
     register_race_admin_handlers(application)
     schedule_race_reset(application)
     application.job_queue.run_repeating(

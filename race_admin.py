@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from storage import db
+from librate_casino import db
 from race import (
     _get_or_create_active_race,
     _seed_top_users,
