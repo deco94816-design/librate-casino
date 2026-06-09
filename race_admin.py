@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from librate_casino import db
+
 from race import (
     _get_or_create_active_race,
     _seed_top_users,
@@ -38,8 +38,9 @@ from race import (
 # ─── Admin Guard ─────────────────────────────────────────────────────────────
 
 async def _is_admin(update: Update) -> bool:
+    from storage import db as _db
     user_id = update.effective_user.id
-    if user_id in db.get_all_admins():
+    if _db.is_admin(user_id):
         return True
     await update.message.reply_text("⛔ Admin only.")
     return False
