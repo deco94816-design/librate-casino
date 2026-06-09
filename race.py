@@ -330,7 +330,7 @@ async def _build_race_message(user_id: int, display_name: str) -> str:
     lines = [
         "🔥 <b>Races</b>",
         "",
-        "Join the Raika race! Place bets in mini-games and climb the leaderboard. The higher your rank, the bigger the prize!",
+        "Join the Librate race! Place bets in mini-games and climb the leaderboard. The higher your rank, the bigger the prize!",
         "",
         f"🍀 <b>${TOTAL_PRIZE_USD:,} race</b>",
         "",
